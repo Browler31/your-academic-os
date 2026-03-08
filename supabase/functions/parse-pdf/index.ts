@@ -145,6 +145,7 @@ Deno.serve(async (req) => {
       const pdfResp = await fetch(downloadUrl);
       if (!pdfResp.ok) throw new Error(`Failed to download file: ${pdfResp.status}`);
 
+      const pdfBytes = await pdfResp.arrayBuffer();
       const uint8 = new Uint8Array(pdfBytes);
       let binary = "";
       const chunkSize = 8192;
