@@ -1,4 +1,4 @@
-import { LayoutDashboard, BookOpen, Clock, FileText, ListTodo, RefreshCw, Settings, CalendarDays, CreditCard } from "lucide-react";
+import { LayoutDashboard, BookOpen, Clock, FileText, ListTodo, RefreshCw, Settings, CalendarDays, CreditCard, FolderOpen, BarChart3 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
@@ -9,7 +9,9 @@ const navItems = [
   { to: "/deadlines", label: "Deadlines", icon: Clock },
   { to: "/timetable", label: "Stundenplan", icon: CalendarDays },
   { to: "/notes", label: "Notes", icon: FileText },
+  { to: "/files", label: "Files", icon: FolderOpen },
   { to: "/flashcards", label: "Flashcards", icon: CreditCard },
+  { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/moodle-sync", label: "Moodle Sync", icon: RefreshCw },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
