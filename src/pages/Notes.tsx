@@ -95,11 +95,23 @@ export default function Notes() {
   return (
     <DashboardLayout>
       <div className="animate-fade-in">
-        <h1 className="text-3xl font-bold tracking-tight">Notes</h1>
-        <p className="mt-1 text-muted-foreground">
-          {notes.length} Notizen aus {courseNames.length} Kursen.
-        </p>
-
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Notes</h1>
+            <p className="mt-1 text-muted-foreground">
+              {notes.length} Notizen aus {courseNames.length} Kursen.
+            </p>
+          </div>
+          {notes.some((n) => n.note_type === "general") && (
+            <Button onClick={handleClassify} disabled={classifying} variant="outline">
+              {classifying ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Klassifiziere...</>
+              ) : (
+                <><Sparkles className="mr-2 h-4 w-4" /> AI Klassifizierung</>
+              )}
+            </Button>
+          )}
+        </div>
         {loading ? (
           <div className="mt-8 space-y-4">
             {[1, 2, 3].map((i) => (
