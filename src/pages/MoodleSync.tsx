@@ -50,7 +50,7 @@ export default function MoodleSync() {
     try {
       const result = await callMoodleSync("sync_all");
       setSyncResult(result);
-      toast.success(`Synced ${result.synced_courses} courses with deadlines and notes!`);
+      toast.success(`Synced ${result.synced_courses} courses, ${result.synced_files || 0} files!`);
     } catch (error: any) {
       toast.error(`Sync failed: ${error.message}`);
     } finally {
