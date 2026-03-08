@@ -177,6 +177,63 @@ export type Database = {
           },
         ]
       }
+      flashcards: {
+        Row: {
+          back: string | null
+          cloze_text: string
+          course_id: string | null
+          created_at: string
+          exported_at: string | null
+          front: string
+          id: string
+          is_approved: boolean | null
+          note_id: string | null
+          tags: string[] | null
+          user_id: string
+        }
+        Insert: {
+          back?: string | null
+          cloze_text: string
+          course_id?: string | null
+          created_at?: string
+          exported_at?: string | null
+          front: string
+          id?: string
+          is_approved?: boolean | null
+          note_id?: string | null
+          tags?: string[] | null
+          user_id: string
+        }
+        Update: {
+          back?: string | null
+          cloze_text?: string
+          course_id?: string | null
+          created_at?: string
+          exported_at?: string | null
+          front?: string
+          id?: string
+          is_approved?: boolean | null
+          note_id?: string | null
+          tags?: string[] | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "flashcards_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "flashcards_note_id_fkey"
+            columns: ["note_id"]
+            isOneToOne: false
+            referencedRelation: "notes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       notes: {
         Row: {
           content: string | null
