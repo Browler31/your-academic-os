@@ -113,13 +113,13 @@ Deno.serve(async (req) => {
       }
 
       case "sync_all": {
-        // 1. Get courses
+        // Phase 1: Just sync course list + deadlines (fast, no timeout)
         const siteInfo = await moodleApi(moodle_base_url, moodle_token, "core_webservice_get_site_info");
         const courses = await moodleApi(moodle_base_url, moodle_token, "core_enrol_get_users_courses", {
           userid: String(siteInfo.userid),
         });
 
-        // 2. Upsert courses
+        // Upsert courses
         for (const course of courses) {
           const { data: existing } = await supabase
             .from("courses")
@@ -129,46 +129,36 @@ Deno.serve(async (req) => {
             .maybeSingle();
 
           if (existing) {
-            await supabase
-              .from("courses")
-              .update({ name: course.fullname, short_name: course.shortname, last_synced_at: new Date().toISOString() })
-              .eq("id", existing.id);
+            await supabase.from("courses").update({
+              name: course.fullname,
+              short_name: course.shortname,
+              last_synced_at: new Date().toISOString(),
+            }).eq("id", existing.id);
           } else {
-            await supabase
-              .from("courses")
-              .insert({
-                user_id: user.id,
-                moodle_course_id: course.id,
-                name: course.fullname,
-                short_name: course.shortname,
-                is_synced: true,
-                last_synced_at: new Date().toISOString(),
-              });
+            await supabase.from("courses").insert({
+              user_id: user.id,
+              moodle_course_id: course.id,
+              name: course.fullname,
+              short_name: course.shortname,
+              is_synced: true,
+              last_synced_at: new Date().toISOString(),
+            });
           }
         }
 
-        // 3. Get assignments and create deadlines
+        // Deadlines from assignments
         const assignData = await moodleApi(moodle_base_url, moodle_token, "mod_assign_get_assignments");
-        const assignCourses = assignData.courses || [];
-
-        for (const ac of assignCourses) {
+        for (const ac of (assignData.courses || [])) {
           const { data: dbCourse } = await supabase
-            .from("courses")
-            .select("id")
-            .eq("user_id", user.id)
-            .eq("moodle_course_id", ac.id)
-            .maybeSingle();
+            .from("courses").select("id")
+            .eq("user_id", user.id).eq("moodle_course_id", ac.id).maybeSingle();
 
           for (const assign of ac.assignments || []) {
             if (assign.duedate && assign.duedate > 0) {
-              const { data: existingDeadline } = await supabase
-                .from("deadlines")
-                .select("id")
-                .eq("user_id", user.id)
-                .eq("moodle_assignment_id", assign.id)
-                .maybeSingle();
-
-              if (!existingDeadline) {
+              const { data: exists } = await supabase
+                .from("deadlines").select("id")
+                .eq("user_id", user.id).eq("moodle_assignment_id", assign.id).maybeSingle();
+              if (!exists) {
                 await supabase.from("deadlines").insert({
                   user_id: user.id,
                   course_id: dbCourse?.id || null,
@@ -183,148 +173,125 @@ Deno.serve(async (req) => {
           }
         }
 
-        // 4. Get course contents for notes and files
+        // Return course list so frontend can sync each one individually
+        const { data: dbCourses } = await supabase
+          .from("courses").select("id, moodle_course_id, name, short_name")
+          .eq("user_id", user.id);
+
+        result = {
+          synced_courses: courses.length,
+          courses_to_sync: (dbCourses || []).map(c => ({
+            id: c.id,
+            moodle_course_id: c.moodle_course_id,
+            name: c.name,
+            short_name: c.short_name,
+          })),
+          message: "Courses synced. Now sync each course for files.",
+        };
+        break;
+      }
+
+      case "sync_course": {
+        // Phase 2: Sync ONE course's files + notes (called per course)
+        const { moodle_course_id, course_db_id } = body;
+        if (!moodle_course_id) throw new Error("moodle_course_id required");
+
+        const courseDbId = course_db_id || null;
         let totalFiles = 0;
-        const fileErrors: string[] = [];
-        
-        for (const course of courses) {
-          const { data: dbCourse } = await supabase
-            .from("courses")
-            .select("id")
-            .eq("user_id", user.id)
-            .eq("moodle_course_id", course.id)
-            .maybeSingle();
+        let totalNotes = 0;
 
-          const courseDbId = dbCourse?.id || null;
-          console.log(`Processing course: ${course.fullname} (moodle_id=${course.id}, db_id=${courseDbId})`);
+        const contents = await moodleApi(moodle_base_url, moodle_token, "core_course_get_contents", {
+          courseid: String(moodle_course_id),
+        });
 
-          try {
-            const contents = await moodleApi(moodle_base_url, moodle_token, "core_course_get_contents", {
-              courseid: String(course.id),
-            });
+        console.log(`sync_course ${moodle_course_id}: ${contents.length} sections`);
 
-            console.log(`Course ${course.shortname}: ${contents.length} sections found`);
+        for (const section of contents) {
+          // Notes from section summaries
+          if (section.summary && section.summary.trim().length > 20) {
+            const plainText = section.summary.replace(/<[^>]*>/g, "").trim();
+            const isLernziel = /lernziel|learning\s*objective|kompetenz/i.test(plainText);
+            const { data: exists } = await supabase
+              .from("notes").select("id")
+              .eq("user_id", user.id).eq("title", section.name || "Section").eq("source", "moodle").maybeSingle();
+            if (!exists) {
+              await supabase.from("notes").insert({
+                user_id: user.id, course_id: courseDbId,
+                title: section.name || "Section", content: plainText,
+                note_type: isLernziel ? "lernziel" : "general", source: "moodle",
+              });
+              totalNotes++;
+            }
+          }
 
-            for (const section of contents) {
-              // 4a. Section summaries → notes
-              if (section.summary && section.summary.trim().length > 20) {
-                const plainText = section.summary.replace(/<[^>]*>/g, "").trim();
-                const isLernziel = /lernziel|learning\s*objective|kompetenz/i.test(plainText);
-                
-                const { data: existingNote } = await supabase
-                  .from("notes")
-                  .select("id")
-                  .eq("user_id", user.id)
-                  .eq("title", section.name || "Section")
-                  .eq("source", "moodle")
-                  .maybeSingle();
-
-                if (!existingNote) {
-                  await supabase.from("notes").insert({
-                    user_id: user.id,
-                    course_id: courseDbId,
-                    title: section.name || "Section",
-                    content: plainText,
-                    note_type: isLernziel ? "lernziel" : "general",
-                    source: "moodle",
-                  });
-                }
+          for (const mod of section.modules || []) {
+            // Notes from module descriptions
+            const modDesc = (mod.description || "").replace(/<[^>]*>/g, "").trim();
+            if (modDesc.length >= 30) {
+              const modTitle = `${section.name || "Section"} — ${mod.name || "Module"}`;
+              const { data: exists } = await supabase
+                .from("notes").select("id")
+                .eq("user_id", user.id).eq("title", modTitle).eq("source", "moodle").maybeSingle();
+              if (!exists) {
+                const isExercise = /aufgabe|übung|exercise|fragen|beantworten/i.test(modDesc);
+                const isLernziel = /lernziel|kompetenz|learning\s*objective/i.test(modDesc);
+                const isReading = /lektüre|lesen|read|kapitel|chapter|textbuch/i.test(modDesc);
+                await supabase.from("notes").insert({
+                  user_id: user.id, course_id: courseDbId,
+                  title: modTitle, content: modDesc,
+                  note_type: isLernziel ? "lernziel" : isExercise ? "exercise" : isReading ? "reading" : "general",
+                  source: "moodle",
+                });
+                totalNotes++;
               }
+            }
 
-              // 4b. Module-level content
-              for (const mod of section.modules || []) {
-                const modDesc = (mod.description || "").replace(/<[^>]*>/g, "").trim();
-                if (modDesc.length >= 30) {
-                  const modTitle = `${section.name || "Section"} — ${mod.name || "Module"}`;
+            // Files from all sources in module
+            const allFiles: any[] = [];
+            if (Array.isArray(mod.contents)) {
+              for (const f of mod.contents) {
+                if (f.type === "file" || f.type === "content") allFiles.push(f);
+              }
+            }
+            if (Array.isArray(mod.introfiles)) {
+              for (const f of mod.introfiles) allFiles.push({ ...f, type: "file" });
+            }
+            if (Array.isArray(mod.contentfiles)) {
+              for (const f of mod.contentfiles) allFiles.push({ ...f, type: "file" });
+            }
 
-                  const { data: existingModNote } = await supabase
-                    .from("notes")
-                    .select("id")
-                    .eq("user_id", user.id)
-                    .eq("title", modTitle)
-                    .eq("source", "moodle")
-                    .maybeSingle();
+            for (const file of allFiles) {
+              const fname = file.filename || file.name;
+              if (!fname || fname === ".") continue;
 
-                  if (!existingModNote) {
-                    const isExercise = /aufgabe|übung|exercise|fragen|beantworten/i.test(modDesc);
-                    const isLernziel = /lernziel|kompetenz|learning\s*objective/i.test(modDesc);
-                    const isReading = /lektüre|lesen|read|kapitel|chapter|textbuch/i.test(modDesc);
+              const { data: exists } = await supabase
+                .from("files").select("id")
+                .eq("user_id", user.id).eq("file_name", fname)
+                .eq(courseDbId ? "course_id" : "user_id", courseDbId || user.id)
+                .maybeSingle();
 
-                    await supabase.from("notes").insert({
-                      user_id: user.id,
-                      course_id: courseDbId,
-                      title: modTitle,
-                      content: modDesc,
-                      note_type: isLernziel ? "lernziel" : isExercise ? "exercise" : isReading ? "reading" : "general",
-                      source: "moodle",
-                    });
-                  }
-                }
-
-                // 4c. Extract ALL files from every possible location in the module
-                const allFiles: any[] = [];
-                
-                // mod.contents — primary file list (resource, folder, etc.)
-                if (Array.isArray(mod.contents)) {
-                  for (const f of mod.contents) {
-                    if (f.type === "file" || f.type === "content") allFiles.push(f);
-                  }
-                }
-                // mod.introfiles — intro attachments on activities
-                if (Array.isArray(mod.introfiles)) {
-                  for (const f of mod.introfiles) allFiles.push({ ...f, type: "file" });
-                }
-                // mod.contentfiles — content attachments
-                if (Array.isArray(mod.contentfiles)) {
-                  for (const f of mod.contentfiles) allFiles.push({ ...f, type: "file" });
-                }
-
-                for (const file of allFiles) {
-                  const fname = file.filename || file.name;
-                  if (!fname || fname === ".") continue;
-
-                  const { data: existingFile } = await supabase
-                    .from("files")
-                    .select("id")
-                    .eq("user_id", user.id)
-                    .eq("file_name", fname)
-                    .eq(courseDbId ? "course_id" : "user_id", courseDbId || user.id)
-                    .maybeSingle();
-
-                  if (!existingFile) {
-                    const furl = file.fileurl || null;
-                    const { error: insertErr } = await supabase.from("files").insert({
-                      user_id: user.id,
-                      course_id: courseDbId,
-                      file_name: fname,
-                      file_type: file.mimetype || file.type || null,
-                      file_size: file.filesize || null,
-                      moodle_file_url: furl,
-                      file_url: furl ? `${furl}${furl.includes("?") ? "&" : "?"}token=${moodle_token}` : null,
-                    });
-                    if (insertErr) {
-                      console.error(`File insert error for ${fname}:`, insertErr.message);
-                    } else {
-                      totalFiles++;
-                    }
-                  }
+              if (!exists) {
+                const furl = file.fileurl || null;
+                const { error: insertErr } = await supabase.from("files").insert({
+                  user_id: user.id, course_id: courseDbId,
+                  file_name: fname,
+                  file_type: file.mimetype || file.type || null,
+                  file_size: file.filesize || null,
+                  moodle_file_url: furl,
+                  file_url: furl ? `${furl}${furl.includes("?") ? "&" : "?"}token=${moodle_token}` : null,
+                });
+                if (insertErr) {
+                  console.error(`File insert error for ${fname}:`, insertErr.message);
+                } else {
+                  totalFiles++;
                 }
               }
             }
-          } catch (err: any) {
-            const msg = `Course ${course.shortname} (${course.id}): ${err.message}`;
-            console.error("Content fetch error:", msg);
-            fileErrors.push(msg);
           }
         }
 
-        console.log(`Sync complete: ${courses.length} courses, ${totalFiles} new files, ${fileErrors.length} errors`);
-        result = { 
-          synced_courses: courses.length, 
-          synced_files: totalFiles, 
-          errors: fileErrors.length > 0 ? fileErrors : undefined,
-          message: "Sync complete" 
-        };
+        console.log(`sync_course ${moodle_course_id} done: ${totalFiles} files, ${totalNotes} notes`);
+        result = { moodle_course_id, files: totalFiles, notes: totalNotes };
         break;
       }
 
