@@ -167,7 +167,7 @@ export default function Notes() {
                     <div className="flex items-center gap-2">
                       {Object.entries(typeCounts).filter(([t]) => t !== "general").map(([t, c]) => (
                         <Badge key={t} variant="outline" className={cn("text-xs", typeColors[t])}>
-                          {c} {typeLabels[t] || t}
+                          {c as number} {typeLabels[t] || t}
                         </Badge>
                       ))}
                       <span className="text-xs text-muted-foreground">{courseNotes.length} Notizen</span>
