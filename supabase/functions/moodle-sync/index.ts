@@ -183,7 +183,8 @@ Deno.serve(async (req) => {
           }
         }
 
-        // 4. Get course contents for notes (Lernziele)
+        // 4. Get course contents for notes and files
+        let totalFiles = 0;
         for (const course of courses) {
           const { data: dbCourse } = await supabase
             .from("courses")
@@ -198,7 +199,7 @@ Deno.serve(async (req) => {
             });
 
             for (const section of contents) {
-              // 4a. Section summaries (existing logic)
+              // 4a. Section summaries
               if (section.summary && section.summary.trim().length > 20) {
                 const plainText = section.summary.replace(/<[^>]*>/g, "").trim();
                 const isLernziel = /lernziel|learning\s*objective|kompetenz/i.test(plainText);
@@ -224,40 +225,38 @@ Deno.serve(async (req) => {
                 }
               }
 
-              // 4b. Module-level content (activities, resources with descriptions)
+              // 4b. Module-level content
               for (const mod of section.modules || []) {
-                // Skip if no meaningful description
                 const modDesc = (mod.description || "").replace(/<[^>]*>/g, "").trim();
-                if (modDesc.length < 30) continue;
+                if (modDesc.length >= 30) {
+                  const modTitle = `${section.name || "Section"} — ${mod.name || "Module"}`;
 
-                const modTitle = `${section.name || "Section"} — ${mod.name || "Module"}`;
+                  const { data: existingModNote } = await supabase
+                    .from("notes")
+                    .select("id")
+                    .eq("user_id", user.id)
+                    .eq("course_id", dbCourse?.id)
+                    .eq("title", modTitle)
+                    .eq("source", "moodle")
+                    .maybeSingle();
 
-                const { data: existingModNote } = await supabase
-                  .from("notes")
-                  .select("id")
-                  .eq("user_id", user.id)
-                  .eq("course_id", dbCourse?.id)
-                  .eq("title", modTitle)
-                  .eq("source", "moodle")
-                  .maybeSingle();
+                  if (!existingModNote) {
+                    const isExercise = /aufgabe|übung|exercise|fragen|beantworten/i.test(modDesc);
+                    const isLernziel = /lernziel|kompetenz|learning\s*objective/i.test(modDesc);
+                    const isReading = /lektüre|lesen|read|kapitel|chapter|textbuch/i.test(modDesc);
 
-                if (!existingModNote) {
-                  // Classify based on content
-                  const isExercise = /aufgabe|übung|exercise|fragen|beantworten/i.test(modDesc);
-                  const isLernziel = /lernziel|kompetenz|learning\s*objective/i.test(modDesc);
-                  const isReading = /lektüre|lesen|read|kapitel|chapter|textbuch/i.test(modDesc);
-
-                  await supabase.from("notes").insert({
-                    user_id: user.id,
-                    course_id: dbCourse?.id || null,
-                    title: modTitle,
-                    content: modDesc,
-                    note_type: isLernziel ? "lernziel" : isExercise ? "exercise" : isReading ? "reading" : "general",
-                    source: "moodle",
-                  });
+                    await supabase.from("notes").insert({
+                      user_id: user.id,
+                      course_id: dbCourse?.id || null,
+                      title: modTitle,
+                      content: modDesc,
+                      note_type: isLernziel ? "lernziel" : isExercise ? "exercise" : isReading ? "reading" : "general",
+                      source: "moodle",
+                    });
+                  }
                 }
 
-                // 4c. Track files from modules
+                // 4c. Track ALL files from modules (comprehensive scan)
                 for (const file of mod.contents || []) {
                   if (file.type === "file" && file.filename) {
                     const { data: existingFile } = await supabase
@@ -278,6 +277,7 @@ Deno.serve(async (req) => {
                         moodle_file_url: file.fileurl || null,
                         file_url: file.fileurl ? `${file.fileurl}&token=${moodle_token}` : null,
                       });
+                      totalFiles++;
                     }
                   }
                 }
@@ -288,7 +288,43 @@ Deno.serve(async (req) => {
           }
         }
 
-        result = { synced_courses: courses.length, message: "Sync complete" };
+        result = { synced_courses: courses.length, synced_files: totalFiles, message: "Sync complete" };
+        break;
+      }
+
+      case "get_course_files": {
+        // Get all files for a specific course via core_course_get_contents
+        const { moodle_course_id } = body;
+        if (!moodle_course_id) {
+          return new Response(JSON.stringify({ error: "Missing moodle_course_id" }), {
+            status: 400,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        const contents = await moodleApi(moodle_base_url, moodle_token, "core_course_get_contents", {
+          courseid: String(moodle_course_id),
+        });
+
+        const files: any[] = [];
+        for (const section of contents) {
+          for (const mod of section.modules || []) {
+            for (const file of mod.contents || []) {
+              if (file.type === "file") {
+                files.push({
+                  filename: file.filename,
+                  fileurl: file.fileurl,
+                  filesize: file.filesize,
+                  mimetype: file.mimetype,
+                  section: section.name,
+                  module: mod.name,
+                  timemodified: file.timemodified,
+                });
+              }
+            }
+          }
+        }
+        result = { files, total: files.length };
         break;
       }
 

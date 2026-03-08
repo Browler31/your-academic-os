@@ -3,10 +3,11 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Sparkles, Download, Check, X, Loader2, CreditCard } from "lucide-react";
+import { Sparkles, Download, Check, X, Loader2, CreditCard, ChevronDown, ChevronUp } from "lucide-react";
 import { cleanCourseName } from "@/lib/semester";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -16,11 +17,13 @@ export default function Flashcards() {
   const [notes, setNotes] = useState<any[]>([]);
   const [flashcards, setFlashcards] = useState<any[]>([]);
   const [courses, setCourses] = useState<any[]>([]);
-  const [selectedNote, setSelectedNote] = useState<string>("");
+  const [selectedNotes, setSelectedNotes] = useState<string[]>([]);
   const [selectedCourseFilter, setSelectedCourseFilter] = useState<string>("all");
+  const [noteSourceFilter, setNoteSourceFilter] = useState<string>("all");
   const [generating, setGenerating] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [noteSelectorOpen, setNoteSelectorOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -29,7 +32,6 @@ export default function Flashcards() {
       supabase.from("flashcards").select("*, courses(name, short_name), notes(title)").eq("user_id", user.id).order("created_at", { ascending: false }),
       supabase.from("courses").select("id, name, short_name").eq("user_id", user.id),
     ]).then(([notesRes, cardsRes, coursesRes]) => {
-      // Only show notes with enough content
       setNotes((notesRes.data || []).filter((n: any) => n.content && n.content.length >= 20));
       setFlashcards(cardsRes.data || []);
       setCourses(coursesRes.data || []);
@@ -37,30 +39,64 @@ export default function Flashcards() {
     });
   }, [user]);
 
+  const toggleNote = (noteId: string) => {
+    setSelectedNotes((prev) =>
+      prev.includes(noteId) ? prev.filter((id) => id !== noteId) : [...prev, noteId]
+    );
+  };
+
+  const selectAllFiltered = () => {
+    const ids = filteredNotes.map((n) => n.id);
+    setSelectedNotes((prev) => {
+      const allSelected = ids.every((id) => prev.includes(id));
+      if (allSelected) return prev.filter((id) => !ids.includes(id));
+      return [...new Set([...prev, ...ids])];
+    });
+  };
+
+  const filteredNotes = notes.filter((n) => {
+    if (noteSourceFilter !== "all" && n.course_id !== noteSourceFilter) return false;
+    return true;
+  });
+
   const handleGenerate = async () => {
-    if (!selectedNote) {
-      toast.error("Wähle eine Notiz aus");
+    if (selectedNotes.length === 0) {
+      toast.error("Wähle mindestens eine Notiz aus");
       return;
     }
     setGenerating(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("generate-anki-cards", {
-        body: { action: "generate", note_id: selectedNote },
-      });
-      if (error) throw error;
-      toast.success(`${data.created} Flashcards generiert!`);
-      // Refresh
-      const { data: updated } = await supabase
-        .from("flashcards")
-        .select("*, courses(name, short_name), notes(title)")
-        .eq("user_id", user!.id)
-        .order("created_at", { ascending: false });
-      setFlashcards(updated || []);
-    } catch (err: any) {
-      toast.error(err.message || "Fehler bei der Generierung");
-    } finally {
-      setGenerating(false);
+    let totalCreated = 0;
+    let errors = 0;
+
+    for (const noteId of selectedNotes) {
+      try {
+        const { data, error } = await supabase.functions.invoke("generate-anki-cards", {
+          body: { action: "generate", note_id: noteId },
+        });
+        if (error) throw error;
+        totalCreated += data.created || 0;
+      } catch (err: any) {
+        errors++;
+        console.error(`Failed for note ${noteId}:`, err.message);
+      }
     }
+
+    if (totalCreated > 0) {
+      toast.success(`${totalCreated} Flashcards aus ${selectedNotes.length - errors} Notizen generiert!`);
+    }
+    if (errors > 0) {
+      toast.error(`${errors} Notizen konnten nicht verarbeitet werden`);
+    }
+
+    // Refresh
+    const { data: updated } = await supabase
+      .from("flashcards")
+      .select("*, courses(name, short_name), notes(title)")
+      .eq("user_id", user!.id)
+      .order("created_at", { ascending: false });
+    setFlashcards(updated || []);
+    setSelectedNotes([]);
+    setGenerating(false);
   };
 
   const toggleApproval = async (id: string, currentApproval: boolean) => {
@@ -94,7 +130,6 @@ export default function Flashcards() {
       });
       if (error) throw error;
 
-      // Download as file
       const blob = new Blob([data], { type: "text/tab-separated-values" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -150,7 +185,7 @@ export default function Flashcards() {
           </Button>
         </div>
 
-        {/* Generator */}
+        {/* Generator with multi-select */}
         <Card className="mt-6">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
@@ -158,32 +193,72 @@ export default function Flashcards() {
               Flashcards generieren
             </CardTitle>
             <CardDescription>
-              Wähle eine Notiz aus und generiere Cloze-Deletion Karten für Anki.
+              Wähle eine oder mehrere Notizen und generiere Cloze-Deletion Karten für Anki.
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex items-end gap-3">
-            <div className="flex-1">
-              <Select value={selectedNote} onValueChange={setSelectedNote}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Notiz auswählen..." />
+          <CardContent className="space-y-3">
+            {/* Note source filter + toggle */}
+            <div className="flex items-center gap-3">
+              <Select value={noteSourceFilter} onValueChange={setNoteSourceFilter}>
+                <SelectTrigger className="w-56">
+                  <SelectValue placeholder="Kurs filtern..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {notes.map((n) => (
-                    <SelectItem key={n.id} value={n.id}>
-                      <span className="truncate">
-                        {n.courses ? cleanCourseName(n.courses.name, n.courses.short_name) + " — " : ""}
-                        {n.title}
-                      </span>
+                  <SelectItem value="all">Alle Kurse</SelectItem>
+                  {courses.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {cleanCourseName(c.name, c.short_name)}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              <Button variant="ghost" size="sm" onClick={() => setNoteSelectorOpen(!noteSelectorOpen)}>
+                {selectedNotes.length > 0 && (
+                  <Badge variant="secondary" className="mr-2">{selectedNotes.length} ausgewählt</Badge>
+                )}
+                {noteSelectorOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={selectAllFiltered}>
+                Alle auswählen
+              </Button>
             </div>
-            <Button onClick={handleGenerate} disabled={generating || !selectedNote}>
+
+            {/* Note checklist */}
+            {noteSelectorOpen && (
+              <div className="max-h-64 overflow-y-auto rounded-lg border p-2 space-y-1">
+                {filteredNotes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-2">Keine Notizen mit genügend Inhalt.</p>
+                ) : (
+                  filteredNotes.map((n) => (
+                    <label
+                      key={n.id}
+                      className={cn(
+                        "flex items-center gap-3 rounded-md px-3 py-2 text-sm cursor-pointer hover:bg-muted/50 transition-colors",
+                        selectedNotes.includes(n.id) && "bg-primary/5"
+                      )}
+                    >
+                      <Checkbox
+                        checked={selectedNotes.includes(n.id)}
+                        onCheckedChange={() => toggleNote(n.id)}
+                      />
+                      <span className="truncate flex-1">
+                        {n.courses ? cleanCourseName(n.courses.name, n.courses.short_name) + " — " : ""}
+                        {n.title}
+                      </span>
+                      {n.note_type && n.note_type !== "general" && (
+                        <Badge variant="outline" className="text-xs shrink-0">{n.note_type}</Badge>
+                      )}
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+
+            <Button onClick={handleGenerate} disabled={generating || selectedNotes.length === 0} className="w-full">
               {generating ? (
-                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generiere...</>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generiere {selectedNotes.length} Notizen...</>
               ) : (
-                <><Sparkles className="mr-2 h-4 w-4" /> Generieren</>
+                <><Sparkles className="mr-2 h-4 w-4" /> {selectedNotes.length > 0 ? `${selectedNotes.length} Notizen generieren` : "Notizen auswählen"}</>
               )}
             </Button>
           </CardContent>
@@ -222,7 +297,7 @@ export default function Flashcards() {
               <CreditCard className="h-12 w-12 text-muted-foreground/40" />
               <h3 className="mt-4 font-semibold">Keine Flashcards</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Wähle oben eine Notiz und generiere deine ersten Karten.
+                Wähle oben Notizen und generiere deine ersten Karten.
               </p>
             </CardContent>
           </Card>

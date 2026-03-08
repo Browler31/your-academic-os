@@ -16,7 +16,7 @@ export default function MoodleSync() {
   const [isVerified, setIsVerified] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ synced_courses: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ synced_courses: number; synced_files?: number } | null>(null);
 
   const callMoodleSync = async (action: string, extra: Record<string, unknown> = {}) => {
     const { data, error } = await supabase.functions.invoke("moodle-sync", {
@@ -50,7 +50,7 @@ export default function MoodleSync() {
     try {
       const result = await callMoodleSync("sync_all");
       setSyncResult(result);
-      toast.success(`Synced ${result.synced_courses} courses with deadlines and notes!`);
+      toast.success(`Synced ${result.synced_courses} courses, ${result.synced_files || 0} files!`);
     } catch (error: any) {
       toast.error(`Sync failed: ${error.message}`);
     } finally {
@@ -125,7 +125,7 @@ export default function MoodleSync() {
             {syncResult && (
               <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/30 bg-success/5 p-3 text-sm">
                 <Check className="h-4 w-4 text-success" />
-                <span>Synced {syncResult.synced_courses} courses. Check your Dashboard, Courses, Deadlines, and Notes pages.</span>
+                <span>Synced {syncResult.synced_courses} courses, {syncResult.synced_files || 0} files. Check Dashboard, Courses, Deadlines, Notes, and Flashcards.</span>
               </div>
             )}
           </CardContent>
