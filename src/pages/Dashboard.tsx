@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { BookOpen, Clock, FileText, AlertCircle, Zap } from "lucide-react";
+import { BookOpen, Clock, FileText, AlertCircle, Zap, CalendarDays } from "lucide-react";
 import { format, addDays, isPast, isToday } from "date-fns";
+import { de } from "date-fns/locale";
 import { cleanCourseName, parseSemester } from "@/lib/semester";
 import { cn } from "@/lib/utils";
 
