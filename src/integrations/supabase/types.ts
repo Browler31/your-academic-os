@@ -254,6 +254,57 @@ export type Database = {
         }
         Relationships: []
       }
+      study_sessions: {
+        Row: {
+          course_id: string | null
+          created_at: string
+          duration_minutes: number | null
+          ended_at: string | null
+          id: string
+          session_type: string | null
+          started_at: string
+          task_id: string | null
+          user_id: string
+        }
+        Insert: {
+          course_id?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          ended_at?: string | null
+          id?: string
+          session_type?: string | null
+          started_at?: string
+          task_id?: string | null
+          user_id: string
+        }
+        Update: {
+          course_id?: string | null
+          created_at?: string
+          duration_minutes?: number | null
+          ended_at?: string | null
+          id?: string
+          session_type?: string | null
+          started_at?: string
+          task_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "study_sessions_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_sessions_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tasks: {
         Row: {
           completed_at: string | null
@@ -261,6 +312,7 @@ export type Database = {
           created_at: string
           description: string | null
           due_date: string | null
+          estimated_minutes: number | null
           id: string
           material_id: string | null
           priority_score: number | null
@@ -280,6 +332,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           due_date?: string | null
+          estimated_minutes?: number | null
           id?: string
           material_id?: string | null
           priority_score?: number | null
@@ -299,6 +352,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           due_date?: string | null
+          estimated_minutes?: number | null
           id?: string
           material_id?: string | null
           priority_score?: number | null
