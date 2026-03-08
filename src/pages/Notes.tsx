@@ -26,6 +26,9 @@ const typeColors: Record<string, string> = {
   prep: "bg-warning/10 text-warning border-warning/20",
   general: "bg-secondary text-secondary-foreground border-border",
   summary: "bg-primary/10 text-primary border-primary/20",
+  exercise: "bg-warning/10 text-warning border-warning/20",
+  reading: "bg-primary/10 text-primary border-primary/20",
+  organizational: "bg-muted text-muted-foreground border-border",
 };
 
 export default function Notes() {
