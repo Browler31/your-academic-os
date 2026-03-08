@@ -21,7 +21,8 @@ export default function Dashboard() {
     if (!user) return;
 
     const fetchAll = async () => {
-      const [coursesRes, deadlinesRes, notesRes, tasksRes, upcomingRes, coursesData] = await Promise.all([
+      const today = format(new Date(), "yyyy-MM-dd");
+      const [coursesRes, deadlinesRes, notesRes, tasksRes, upcomingRes, coursesData, todayRes] = await Promise.all([
         supabase.from("courses").select("id", { count: "exact", head: true }).eq("user_id", user.id),
         supabase.from("deadlines").select("id", { count: "exact", head: true }).eq("user_id", user.id).eq("is_completed", false),
         supabase.from("notes").select("id", { count: "exact", head: true }).eq("user_id", user.id),
@@ -39,6 +40,12 @@ export default function Dashboard() {
           .select("*")
           .eq("user_id", user.id)
           .order("name"),
+        supabase
+          .from("timetable_entries")
+          .select("*")
+          .eq("user_id", user.id)
+          .eq("date", today)
+          .order("start_time"),
       ]);
 
       setStats({
