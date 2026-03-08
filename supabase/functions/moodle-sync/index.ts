@@ -115,8 +115,15 @@ Deno.serve(async (req) => {
       case "sync_all": {
         // Phase 1: Just sync course list + deadlines (fast, no timeout)
         const siteInfo = await moodleApi(moodle_base_url, moodle_token, "core_webservice_get_site_info");
-        const courses = await moodleApi(moodle_base_url, moodle_token, "core_enrol_get_users_courses", {
+        const allCourses = await moodleApi(moodle_base_url, moodle_token, "core_enrol_get_users_courses", {
           userid: String(siteInfo.userid),
+        });
+
+        // Filter out irrelevant courses
+        const IGNORED_COURSES = ["modulendprüfungen bsc", "law board"];
+        const courses = allCourses.filter((c: any) => {
+          const name = (c.fullname || "").toLowerCase();
+          return !IGNORED_COURSES.some(ignored => name.includes(ignored));
         });
 
         // Upsert courses
