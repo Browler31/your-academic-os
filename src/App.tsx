@@ -12,6 +12,7 @@ import Notes from "./pages/Notes";
 import Tasks from "./pages/Tasks";
 import MoodleSync from "./pages/MoodleSync";
 import SettingsPage from "./pages/SettingsPage";
+import Flashcards from "./pages/Flashcards";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ function AppRoutes() {
       <Route path="/timetable" element={<Timetable />} />
       <Route path="/notes" element={<Notes />} />
       <Route path="/moodle-sync" element={<MoodleSync />} />
+      <Route path="/flashcards" element={<Flashcards />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<NotFound />} />
