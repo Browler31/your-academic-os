@@ -1,76 +1,90 @@
 
 
-# WebUntis Timetable Integration
+## Moodle Integration for Your Study OS
 
-## What we know
+### The Problem
 
-The WebUntis public API works without authentication and returns your full weekly timetable as structured JSON:
-- **URL pattern**: `https://zhaw-sml-l.webuntis.com/WebUntis/api/public/timetable/weekly/data?elementType=1&elementId=17213&date=YYYY-MM-DD&formatId=1`
-- **Data includes**: lesson periods with `date` (e.g. `20260311`), `startTime`/`endTime` (e.g. `1600`/`1645`), and element references (type 1=class, 2=teacher, 3=room, 4=subject) with IDs that map to names in an `elements` array at the end of the response
-- **No auth needed** — this is a public timetable endpoint
+All your study materials — Lernziele, Prüfungsfragen, lecture slides, preparation instructions, Abgabetermine — live in ZHAW Moodle. Right now you'd have to manually download and upload everything. That defeats the purpose of an autonomous system.
 
-## What we'll build
+### How Moodle Works (Technically)
 
-### 1. New edge function: `webuntis-sync`
+Moodle exposes a **Web Services REST API** that returns JSON. You authenticate with a personal API token (generated in your Moodle profile settings). With that token, you can programmatically:
 
-Fetches your timetable from WebUntis and stores it in a new `timetable_entries` table. Accepts a date range and fetches week-by-week. Parses the JSON response to extract:
-- Subject name + abbreviation (matched to your existing courses via short_name patterns)
-- Day of week, start time, end time
-- Room and teacher info
-- Links each entry to the matching course in your `courses` table
+- List all your enrolled courses
+- Get all resources/files per course (PDFs, PPTX, URLs)
+- Download file contents
+- Get assignment deadlines (Abgabetermine)
+- Get course sections with descriptions (where Lernziele and prep instructions often live)
+- Get forum posts, quizzes, and announcements
 
-### 2. New database table: `timetable_entries`
+ZHAW Moodle base URL is likely `https://moodle.zhaw.ch`.
+
+### What to Build
+
+**Phase 1 — Supabase Edge Function: Moodle Proxy**
+
+A Supabase edge function that takes your Moodle token, calls the Moodle API, and returns structured data. This handles CORS and keeps your token server-side.
+
+Key Moodle API endpoints to use:
+- `core_enrol_get_users_courses` — list your courses
+- `core_course_get_contents` — get all sections, modules, files per course
+- `mod_assign_get_assignments` — get all assignments with due dates
+- `core_calendar_get_calendar_events` — get calendar/deadline events
+- `core_webservice_get_site_info` — verify connection
+
+**Phase 2 — Web UI: Moodle Sync Page**
+
+A page in the app where you:
+1. Enter your Moodle token once (stored as a Supabase secret)
+2. See all your enrolled courses auto-imported
+3. Toggle which courses to sync
+4. Hit "Sync Now" to pull all materials, deadlines, and Lernziele
+5. See sync status and last-sync timestamp
+
+**Phase 3 — Auto-Processing Pipeline**
+
+When files are pulled from Moodle:
+- Course sections with text content (Lernziele, prep instructions) are stored as structured notes
+- PDF/PPTX files are downloaded and stored (in Supabase Storage or referenced for your iCloud pipeline)
+- Assignment due dates become deadlines in your task system
+- Calendar events become reminders
+
+### Architecture
 
 ```text
-timetable_entries
-├── id (uuid, PK)
-├── user_id (uuid, NOT NULL)
-├── course_id (uuid, nullable FK → courses)
-├── subject_name (text)
-├── subject_short (text)
-├── teacher_name (text, nullable)
-├── room_name (text, nullable)
-├── day_of_week (int, 1=Mon..5=Fri)
-├── start_time (time)
-├── end_time (time)
-├── date (date, specific occurrence)
-├── webuntis_lesson_id (bigint)
-├── created_at (timestamptz)
+Browser (Web UI)
+    │
+    ▼
+Supabase Edge Function (/moodle-sync)
+    │
+    ├── Moodle REST API (moodle.zhaw.ch/webservice/rest/server.php)
+    │     ├── Get courses
+    │     ├── Get course contents (sections, files, Lernziele)
+    │     ├── Get assignments (Abgabetermine)
+    │     └── Download files
+    │
+    └── Supabase DB
+          ├── courses table (auto-populated from Moodle)
+          ├── deadlines table (from assignments + calendar)
+          ├── notes table (Lernziele, prep instructions)
+          └── files table (metadata + storage refs)
 ```
 
-RLS: standard per-user policies (select, insert, update, delete).
+### Prerequisites
 
-### 3. Store WebUntis config in profiles
+1. **Supabase connection** — needed for edge functions and database
+2. **Your Moodle API token** — you generate this at `moodle.zhaw.ch → Preferences → Security Keys → Manage Tokens` (or similar path in ZHAW's Moodle)
 
-Add two columns to `profiles`:
-- `webuntis_school` (text, default `'zhaw-sml-l'`)
-- `webuntis_entity_id` (bigint, default `17213`)
+### What This Gives You
 
-This way the edge function knows which class timetable to fetch without hardcoding.
+Instead of manually checking Moodle, downloading files, and entering deadlines — you hit one button and everything flows into your Study OS. The system knows your courses, your deadlines, your Lernziele, and your Prüfungsvorbereitung materials. Combined with the flashcard and task system, this closes the loop: Moodle → auto-import → auto-process → autonomous study plan.
 
-### 4. Course matching logic
+### Implementation Steps
 
-The edge function will match WebUntis subjects to your existing Moodle courses by comparing the subject short name (e.g. `"FER"`) against patterns in the course `short_name` field (e.g. `"w.BA.XX.1FER-RE.XX.2026-FS"`). This links timetable entries to courses, which is the missing piece for the AI planner to know *when* each course happens.
-
-### 5. Timetable page in the UI
-
-New `/timetable` page showing a weekly calendar grid:
-- Columns = Mon–Fri, rows = time slots (08:00–18:00)
-- Colored blocks per course
-- Shows room and teacher
-- Week navigation (prev/next)
-- "Sync from WebUntis" button
-
-Also add a nav item in the sidebar.
-
-### 6. Dashboard integration
-
-Add a "Today's schedule" card to the dashboard showing today's lessons in chronological order — so you immediately see what's coming up.
-
-## Technical details
-
-- The WebUntis API response contains an `elements` array that maps element IDs to names (e.g. `{type: 4, id: 95, name: "FER", longName: "Familienrecht"}`)
-- Lesson periods can span multiple 45-min blocks with the same `lessonId` — we'll merge consecutive blocks into single entries
-- The edge function fetches one week at a time and can be called with a semester date range to bulk-import the full schedule
-- The "Sync Timetable" action will be added to the Moodle Sync page as well, since it's a natural companion
+1. Connect Supabase (or enable Lovable Cloud)
+2. Create database tables for courses, deadlines, notes, files
+3. Build Moodle proxy edge function
+4. Build Moodle sync UI page
+5. Build auto-processing logic (extract Lernziele from section descriptions, create deadline entries from assignments)
+6. Add periodic re-sync capability
 

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import Dashboard from "./pages/Dashboard";
+import Timetable from "./pages/Timetable";
 import Courses from "./pages/Courses";
 import Deadlines from "./pages/Deadlines";
 import Notes from "./pages/Notes";
@@ -31,6 +32,7 @@ function AppRoutes() {
       <Route path="/tasks" element={<Tasks />} />
       <Route path="/courses" element={<Courses />} />
       <Route path="/deadlines" element={<Deadlines />} />
+      <Route path="/timetable" element={<Timetable />} />
       <Route path="/notes" element={<Notes />} />
       <Route path="/moodle-sync" element={<MoodleSync />} />
       <Route path="/settings" element={<SettingsPage />} />

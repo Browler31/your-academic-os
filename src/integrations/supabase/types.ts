@@ -229,6 +229,8 @@ export type Database = {
           moodle_base_url: string | null
           updated_at: string
           user_id: string
+          webuntis_entity_id: number | null
+          webuntis_school: string | null
         }
         Insert: {
           created_at?: string
@@ -237,6 +239,8 @@ export type Database = {
           moodle_base_url?: string | null
           updated_at?: string
           user_id: string
+          webuntis_entity_id?: number | null
+          webuntis_school?: string | null
         }
         Update: {
           created_at?: string
@@ -245,6 +249,8 @@ export type Database = {
           moodle_base_url?: string | null
           updated_at?: string
           user_id?: string
+          webuntis_entity_id?: number | null
+          webuntis_school?: string | null
         }
         Relationships: []
       }
@@ -319,6 +325,62 @@ export type Database = {
             columns: ["material_id"]
             isOneToOne: false
             referencedRelation: "files"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      timetable_entries: {
+        Row: {
+          course_id: string | null
+          created_at: string
+          date: string
+          day_of_week: number
+          end_time: string
+          id: string
+          room_name: string | null
+          start_time: string
+          subject_name: string
+          subject_short: string | null
+          teacher_name: string | null
+          user_id: string
+          webuntis_lesson_id: number | null
+        }
+        Insert: {
+          course_id?: string | null
+          created_at?: string
+          date: string
+          day_of_week: number
+          end_time: string
+          id?: string
+          room_name?: string | null
+          start_time: string
+          subject_name: string
+          subject_short?: string | null
+          teacher_name?: string | null
+          user_id: string
+          webuntis_lesson_id?: number | null
+        }
+        Update: {
+          course_id?: string | null
+          created_at?: string
+          date?: string
+          day_of_week?: number
+          end_time?: string
+          id?: string
+          room_name?: string | null
+          start_time?: string
+          subject_name?: string
+          subject_short?: string | null
+          teacher_name?: string | null
+          user_id?: string
+          webuntis_lesson_id?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "timetable_entries_course_id_fkey"
+            columns: ["course_id"]
+            isOneToOne: false
+            referencedRelation: "courses"
             referencedColumns: ["id"]
           },
         ]
