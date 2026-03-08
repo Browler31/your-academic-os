@@ -55,6 +55,7 @@ export default function Dashboard() {
         tasks: tasksRes.count || 0,
       });
       setUpcomingDeadlines(upcomingRes.data || []);
+      setTodayLessons(todayRes.data || []);
 
       // Filter current semester courses
       const allCourses = coursesData.data || [];
