@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import Dashboard from "./pages/Dashboard";
+import Timetable from "./pages/Timetable";
 import Courses from "./pages/Courses";
 import Deadlines from "./pages/Deadlines";
 import Notes from "./pages/Notes";
