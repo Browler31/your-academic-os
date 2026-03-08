@@ -141,9 +141,10 @@ function parseWebUntisResponse(data: any): {
   const allPeriods: WebUntisPeriod[] = Object.values(elementPeriods).flat() as WebUntisPeriod[];
 
   const parsed = allPeriods.map((p) => {
-    const subjectEl = p.elements?.find((e) => e.type === 4);
+    // WebUntis ZHAW: type 3 = subject, type 4 = room (not the usual convention)
+    const subjectEl = p.elements?.find((e) => e.type === 3);
     const teacherEl = p.elements?.find((e) => e.type === 2);
-    const roomEl = p.elements?.find((e) => e.type === 3);
+    const roomEl = p.elements?.find((e) => e.type === 4);
 
     return {
       date: parseDate(p.date),
