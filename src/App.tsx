@@ -9,6 +9,7 @@ import Dashboard from "./pages/Dashboard";
 import Courses from "./pages/Courses";
 import Deadlines from "./pages/Deadlines";
 import Notes from "./pages/Notes";
+import Tasks from "./pages/Tasks";
 import MoodleSync from "./pages/MoodleSync";
 import SettingsPage from "./pages/SettingsPage";
 import NotFound from "./pages/NotFound";
