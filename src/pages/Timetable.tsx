@@ -238,13 +238,11 @@ export default function Timetable() {
                             style={{ top, height: Math.max(height, 24) }}
                           >
                             <p className="text-xs font-bold truncate">{entry.subject_name}</p>
-                            {height > 40 && (
+                            {height > 36 && (
                               <p className="text-[10px] opacity-70 truncate">
-                                {formatTime(entry.start_time)} – {formatTime(entry.end_time)}
+                                {entry.room_name && <span>{entry.room_name} · </span>}
+                                {formatTime(entry.start_time)}–{formatTime(entry.end_time)}
                               </p>
-                            )}
-                            {height > 56 && entry.room_name && (
-                              <p className="text-[10px] opacity-60 truncate">{entry.room_name}</p>
                             )}
                           </div>
                         );
