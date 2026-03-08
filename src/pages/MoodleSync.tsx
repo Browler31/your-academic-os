@@ -125,7 +125,7 @@ export default function MoodleSync() {
             {syncResult && (
               <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/30 bg-success/5 p-3 text-sm">
                 <Check className="h-4 w-4 text-success" />
-                <span>Synced {syncResult.synced_courses} courses. Check your Dashboard, Courses, Deadlines, and Notes pages.</span>
+                <span>Synced {syncResult.synced_courses} courses, {syncResult.synced_files || 0} files. Check Dashboard, Courses, Deadlines, Notes, and Flashcards.</span>
               </div>
             )}
           </CardContent>
