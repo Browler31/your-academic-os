@@ -32,6 +32,7 @@ function AppRoutes() {
       <Route path="/tasks" element={<Tasks />} />
       <Route path="/courses" element={<Courses />} />
       <Route path="/deadlines" element={<Deadlines />} />
+      <Route path="/timetable" element={<Timetable />} />
       <Route path="/notes" element={<Notes />} />
       <Route path="/moodle-sync" element={<MoodleSync />} />
       <Route path="/settings" element={<SettingsPage />} />
