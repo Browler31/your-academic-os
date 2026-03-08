@@ -16,7 +16,7 @@ export default function MoodleSync() {
   const [isVerified, setIsVerified] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ synced_courses: number; synced_files?: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ synced_courses: number; synced_files?: number; errors?: string[] } | null>(null);
 
   const callMoodleSync = async (action: string, extra: Record<string, unknown> = {}) => {
     const { data, error } = await supabase.functions.invoke("moodle-sync", {
