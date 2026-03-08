@@ -36,7 +36,7 @@ export default function Notes() {
   const [notes, setNotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
-
+  const [classifying, setClassifying] = useState(false);
   useEffect(() => {
     if (!user) return;
     supabase
