@@ -1,1 +1,4 @@
 project_id = "jgquapwuqvthpvgsvabi"
+
+[functions.moodle-sync]
+verify_jwt = false
