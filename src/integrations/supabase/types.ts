@@ -134,6 +134,9 @@ export type Database = {
         Row: {
           course_id: string | null
           created_at: string
+          extracted_at: string | null
+          extracted_content: Json | null
+          extraction_status: string | null
           file_name: string
           file_size: number | null
           file_type: string | null
@@ -146,6 +149,9 @@ export type Database = {
         Insert: {
           course_id?: string | null
           created_at?: string
+          extracted_at?: string | null
+          extracted_content?: Json | null
+          extraction_status?: string | null
           file_name: string
           file_size?: number | null
           file_type?: string | null
@@ -158,6 +164,9 @@ export type Database = {
         Update: {
           course_id?: string | null
           created_at?: string
+          extracted_at?: string | null
+          extracted_content?: Json | null
+          extraction_status?: string | null
           file_name?: string
           file_size?: number | null
           file_type?: string | null
@@ -317,6 +326,42 @@ export type Database = {
         }
         Relationships: []
       }
+      scheduled_triggers: {
+        Row: {
+          body: string
+          created_at: string | null
+          id: string
+          reference_id: string | null
+          scheduled_for: string
+          sent: boolean | null
+          title: string
+          trigger_type: string
+          user_id: string
+        }
+        Insert: {
+          body: string
+          created_at?: string | null
+          id?: string
+          reference_id?: string | null
+          scheduled_for: string
+          sent?: boolean | null
+          title: string
+          trigger_type: string
+          user_id: string
+        }
+        Update: {
+          body?: string
+          created_at?: string | null
+          id?: string
+          reference_id?: string | null
+          scheduled_for?: string
+          sent?: boolean | null
+          title?: string
+          trigger_type?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       study_sessions: {
         Row: {
           course_id: string | null
@@ -367,6 +412,33 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      study_streaks: {
+        Row: {
+          current_streak: number | null
+          id: string
+          last_study_date: string | null
+          longest_streak: number | null
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          current_streak?: number | null
+          id?: string
+          last_study_date?: string | null
+          longest_streak?: number | null
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          current_streak?: number | null
+          id?: string
+          last_study_date?: string | null
+          longest_streak?: number | null
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
       }
       tasks: {
         Row: {
