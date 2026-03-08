@@ -38,12 +38,14 @@ interface OneThing {
   reason: string;
 }
 
+type TaskStatus = "pending" | "in_progress" | "done" | "skipped";
+
 export default function Tasks() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<any[]>([]);
   const [oneThing, setOneThing] = useState<OneThing | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("pending");
+  const [tab, setTab] = useState<TaskStatus>("pending");
 
   const fetchTasks = useCallback(async () => {
     if (!user) return;
