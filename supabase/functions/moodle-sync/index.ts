@@ -198,6 +198,7 @@ Deno.serve(async (req) => {
             });
 
             for (const section of contents) {
+              // 4a. Section summaries (existing logic)
               if (section.summary && section.summary.trim().length > 20) {
                 const plainText = section.summary.replace(/<[^>]*>/g, "").trim();
                 const isLernziel = /lernziel|learning\s*objective|kompetenz/i.test(plainText);
@@ -220,6 +221,65 @@ Deno.serve(async (req) => {
                     note_type: isLernziel ? "lernziel" : "general",
                     source: "moodle",
                   });
+                }
+              }
+
+              // 4b. Module-level content (activities, resources with descriptions)
+              for (const mod of section.modules || []) {
+                // Skip if no meaningful description
+                const modDesc = (mod.description || "").replace(/<[^>]*>/g, "").trim();
+                if (modDesc.length < 30) continue;
+
+                const modTitle = `${section.name || "Section"} — ${mod.name || "Module"}`;
+
+                const { data: existingModNote } = await supabase
+                  .from("notes")
+                  .select("id")
+                  .eq("user_id", user.id)
+                  .eq("course_id", dbCourse?.id)
+                  .eq("title", modTitle)
+                  .eq("source", "moodle")
+                  .maybeSingle();
+
+                if (!existingModNote) {
+                  // Classify based on content
+                  const isExercise = /aufgabe|übung|exercise|fragen|beantworten/i.test(modDesc);
+                  const isLernziel = /lernziel|kompetenz|learning\s*objective/i.test(modDesc);
+                  const isReading = /lektüre|lesen|read|kapitel|chapter|textbuch/i.test(modDesc);
+
+                  await supabase.from("notes").insert({
+                    user_id: user.id,
+                    course_id: dbCourse?.id || null,
+                    title: modTitle,
+                    content: modDesc,
+                    note_type: isLernziel ? "lernziel" : isExercise ? "exercise" : isReading ? "reading" : "general",
+                    source: "moodle",
+                  });
+                }
+
+                // 4c. Track files from modules
+                for (const file of mod.contents || []) {
+                  if (file.type === "file" && file.filename) {
+                    const { data: existingFile } = await supabase
+                      .from("files")
+                      .select("id")
+                      .eq("user_id", user.id)
+                      .eq("file_name", file.filename)
+                      .eq("course_id", dbCourse?.id)
+                      .maybeSingle();
+
+                    if (!existingFile) {
+                      await supabase.from("files").insert({
+                        user_id: user.id,
+                        course_id: dbCourse?.id || null,
+                        file_name: file.filename,
+                        file_type: file.mimetype || null,
+                        file_size: file.filesize || null,
+                        moodle_file_url: file.fileurl || null,
+                        file_url: file.fileurl ? `${file.fileurl}&token=${moodle_token}` : null,
+                      });
+                    }
+                  }
                 }
               }
             }
