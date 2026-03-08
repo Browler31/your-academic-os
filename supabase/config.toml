@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.study-planner]
 verify_jwt = false
+
+[functions.generate-anki-cards]
+verify_jwt = false
