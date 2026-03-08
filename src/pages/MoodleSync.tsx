@@ -16,7 +16,7 @@ export default function MoodleSync() {
   const [isVerified, setIsVerified] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [verifying, setVerifying] = useState(false);
-  const [syncResult, setSyncResult] = useState<{ synced_courses: number; synced_files?: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ synced_courses: number; synced_files?: number; errors?: string[] } | null>(null);
 
   const callMoodleSync = async (action: string, extra: Record<string, unknown> = {}) => {
     const { data, error } = await supabase.functions.invoke("moodle-sync", {
@@ -123,9 +123,19 @@ export default function MoodleSync() {
             </Button>
 
             {syncResult && (
-              <div className="mt-4 flex items-center gap-2 rounded-lg border border-success/30 bg-success/5 p-3 text-sm">
-                <Check className="h-4 w-4 text-success" />
-                <span>Synced {syncResult.synced_courses} courses, {syncResult.synced_files || 0} files. Check Dashboard, Courses, Deadlines, Notes, and Flashcards.</span>
+              <div className="mt-4 space-y-2">
+                <div className="flex items-center gap-2 rounded-lg border border-success/30 bg-success/5 p-3 text-sm">
+                  <Check className="h-4 w-4 text-success" />
+                  <span>Synced {syncResult.synced_courses} courses, {syncResult.synced_files || 0} files.</span>
+                </div>
+                {syncResult.errors && syncResult.errors.length > 0 && (
+                  <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+                    <p className="font-medium">Some courses had errors:</p>
+                    <ul className="mt-1 list-disc list-inside">
+                      {syncResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

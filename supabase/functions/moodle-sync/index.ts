@@ -185,6 +185,8 @@ Deno.serve(async (req) => {
 
         // 4. Get course contents for notes and files
         let totalFiles = 0;
+        const fileErrors: string[] = [];
+        
         for (const course of courses) {
           const { data: dbCourse } = await supabase
             .from("courses")
@@ -193,13 +195,18 @@ Deno.serve(async (req) => {
             .eq("moodle_course_id", course.id)
             .maybeSingle();
 
+          const courseDbId = dbCourse?.id || null;
+          console.log(`Processing course: ${course.fullname} (moodle_id=${course.id}, db_id=${courseDbId})`);
+
           try {
             const contents = await moodleApi(moodle_base_url, moodle_token, "core_course_get_contents", {
               courseid: String(course.id),
             });
 
+            console.log(`Course ${course.shortname}: ${contents.length} sections found`);
+
             for (const section of contents) {
-              // 4a. Section summaries
+              // 4a. Section summaries → notes
               if (section.summary && section.summary.trim().length > 20) {
                 const plainText = section.summary.replace(/<[^>]*>/g, "").trim();
                 const isLernziel = /lernziel|learning\s*objective|kompetenz/i.test(plainText);
@@ -208,7 +215,6 @@ Deno.serve(async (req) => {
                   .from("notes")
                   .select("id")
                   .eq("user_id", user.id)
-                  .eq("course_id", dbCourse?.id)
                   .eq("title", section.name || "Section")
                   .eq("source", "moodle")
                   .maybeSingle();
@@ -216,7 +222,7 @@ Deno.serve(async (req) => {
                 if (!existingNote) {
                   await supabase.from("notes").insert({
                     user_id: user.id,
-                    course_id: dbCourse?.id || null,
+                    course_id: courseDbId,
                     title: section.name || "Section",
                     content: plainText,
                     note_type: isLernziel ? "lernziel" : "general",
@@ -235,7 +241,6 @@ Deno.serve(async (req) => {
                     .from("notes")
                     .select("id")
                     .eq("user_id", user.id)
-                    .eq("course_id", dbCourse?.id)
                     .eq("title", modTitle)
                     .eq("source", "moodle")
                     .maybeSingle();
@@ -247,7 +252,7 @@ Deno.serve(async (req) => {
 
                     await supabase.from("notes").insert({
                       user_id: user.id,
-                      course_id: dbCourse?.id || null,
+                      course_id: courseDbId,
                       title: modTitle,
                       content: modDesc,
                       note_type: isLernziel ? "lernziel" : isExercise ? "exercise" : isReading ? "reading" : "general",
@@ -256,39 +261,70 @@ Deno.serve(async (req) => {
                   }
                 }
 
-                // 4c. Track ALL files from modules (comprehensive scan)
-                for (const file of mod.contents || []) {
-                  if (file.type === "file" && file.filename) {
-                    const { data: existingFile } = await supabase
-                      .from("files")
-                      .select("id")
-                      .eq("user_id", user.id)
-                      .eq("file_name", file.filename)
-                      .eq("course_id", dbCourse?.id)
-                      .maybeSingle();
+                // 4c. Extract ALL files from every possible location in the module
+                const allFiles: any[] = [];
+                
+                // mod.contents — primary file list (resource, folder, etc.)
+                if (Array.isArray(mod.contents)) {
+                  for (const f of mod.contents) {
+                    if (f.type === "file" || f.type === "content") allFiles.push(f);
+                  }
+                }
+                // mod.introfiles — intro attachments on activities
+                if (Array.isArray(mod.introfiles)) {
+                  for (const f of mod.introfiles) allFiles.push({ ...f, type: "file" });
+                }
+                // mod.contentfiles — content attachments
+                if (Array.isArray(mod.contentfiles)) {
+                  for (const f of mod.contentfiles) allFiles.push({ ...f, type: "file" });
+                }
 
-                    if (!existingFile) {
-                      await supabase.from("files").insert({
-                        user_id: user.id,
-                        course_id: dbCourse?.id || null,
-                        file_name: file.filename,
-                        file_type: file.mimetype || null,
-                        file_size: file.filesize || null,
-                        moodle_file_url: file.fileurl || null,
-                        file_url: file.fileurl ? `${file.fileurl}&token=${moodle_token}` : null,
-                      });
+                for (const file of allFiles) {
+                  const fname = file.filename || file.name;
+                  if (!fname || fname === ".") continue;
+
+                  const { data: existingFile } = await supabase
+                    .from("files")
+                    .select("id")
+                    .eq("user_id", user.id)
+                    .eq("file_name", fname)
+                    .eq(courseDbId ? "course_id" : "user_id", courseDbId || user.id)
+                    .maybeSingle();
+
+                  if (!existingFile) {
+                    const furl = file.fileurl || null;
+                    const { error: insertErr } = await supabase.from("files").insert({
+                      user_id: user.id,
+                      course_id: courseDbId,
+                      file_name: fname,
+                      file_type: file.mimetype || file.type || null,
+                      file_size: file.filesize || null,
+                      moodle_file_url: furl,
+                      file_url: furl ? `${furl}${furl.includes("?") ? "&" : "?"}token=${moodle_token}` : null,
+                    });
+                    if (insertErr) {
+                      console.error(`File insert error for ${fname}:`, insertErr.message);
+                    } else {
                       totalFiles++;
                     }
                   }
                 }
               }
             }
-          } catch {
-            // Skip courses where content retrieval fails
+          } catch (err: any) {
+            const msg = `Course ${course.shortname} (${course.id}): ${err.message}`;
+            console.error("Content fetch error:", msg);
+            fileErrors.push(msg);
           }
         }
 
-        result = { synced_courses: courses.length, synced_files: totalFiles, message: "Sync complete" };
+        console.log(`Sync complete: ${courses.length} courses, ${totalFiles} new files, ${fileErrors.length} errors`);
+        result = { 
+          synced_courses: courses.length, 
+          synced_files: totalFiles, 
+          errors: fileErrors.length > 0 ? fileErrors : undefined,
+          message: "Sync complete" 
+        };
         break;
       }
 
