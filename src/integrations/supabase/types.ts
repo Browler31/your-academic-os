@@ -284,6 +284,8 @@ export type Database = {
           display_name: string | null
           id: string
           moodle_base_url: string | null
+          moodle_token: string | null
+          moodle_verified_at: string | null
           updated_at: string
           user_id: string
           webuntis_entity_id: number | null
@@ -294,6 +296,8 @@ export type Database = {
           display_name?: string | null
           id?: string
           moodle_base_url?: string | null
+          moodle_token?: string | null
+          moodle_verified_at?: string | null
           updated_at?: string
           user_id: string
           webuntis_entity_id?: number | null
@@ -304,6 +308,8 @@ export type Database = {
           display_name?: string | null
           id?: string
           moodle_base_url?: string | null
+          moodle_token?: string | null
+          moodle_verified_at?: string | null
           updated_at?: string
           user_id?: string
           webuntis_entity_id?: number | null
