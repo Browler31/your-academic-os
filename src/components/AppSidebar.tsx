@@ -9,6 +9,7 @@ const navItems = [
   { to: "/deadlines", label: "Deadlines", icon: Clock },
   { to: "/timetable", label: "Stundenplan", icon: CalendarDays },
   { to: "/notes", label: "Notes", icon: FileText },
+  { to: "/flashcards", label: "Flashcards", icon: CreditCard },
   { to: "/moodle-sync", label: "Moodle Sync", icon: RefreshCw },
   { to: "/settings", label: "Settings", icon: Settings },
 ];

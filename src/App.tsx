@@ -36,6 +36,7 @@ function AppRoutes() {
       <Route path="/timetable" element={<Timetable />} />
       <Route path="/notes" element={<Notes />} />
       <Route path="/moodle-sync" element={<MoodleSync />} />
+      <Route path="/flashcards" element={<Flashcards />} />
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<NotFound />} />
