@@ -37,23 +37,41 @@ export default function Notes() {
   const [loading, setLoading] = useState(true);
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
   const [classifying, setClassifying] = useState(false);
-  useEffect(() => {
+
+  const fetchNotes = async () => {
     if (!user) return;
-    supabase
+    const { data } = await supabase
       .from("notes")
       .select("*, courses(name, short_name)")
       .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        setNotes(data || []);
-        // Auto-expand first course
-        if (data && data.length > 0) {
-          const firstCourse = data[0].courses?.name || "Ohne Kurs";
-          setExpandedCourses(new Set([firstCourse]));
-        }
-        setLoading(false);
-      });
+      .order("created_at", { ascending: false });
+    setNotes(data || []);
+    if (data && data.length > 0) {
+      const firstCourse = data[0].courses?.name || "Ohne Kurs";
+      setExpandedCourses((prev) => prev.size === 0 ? new Set([firstCourse]) : prev);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchNotes();
   }, [user]);
+
+  const handleClassify = async () => {
+    setClassifying(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("note-classifier", {
+        body: { action: "classify_notes" },
+      });
+      if (error) throw error;
+      toast.success(`${data.classified} von ${data.total_processed} Notizen klassifiziert!`);
+      await fetchNotes();
+    } catch (err: any) {
+      toast.error(`Klassifizierung fehlgeschlagen: ${err.message}`);
+    } finally {
+      setClassifying(false);
+    }
+  };
 
   const toggleCourse = (courseName: string) => {
     setExpandedCourses((prev) => {
