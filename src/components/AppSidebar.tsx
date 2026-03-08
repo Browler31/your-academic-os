@@ -1,10 +1,11 @@
-import { LayoutDashboard, BookOpen, Clock, FileText, RefreshCw, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, BookOpen, Clock, FileText, ListTodo, RefreshCw, Settings, LogOut } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/tasks", label: "Tasks", icon: ListTodo },
   { to: "/courses", label: "Courses", icon: BookOpen },
   { to: "/deadlines", label: "Deadlines", icon: Clock },
   { to: "/notes", label: "Notes", icon: FileText },
