@@ -2,3 +2,6 @@ project_id = "jgquapwuqvthpvgsvabi"
 
 [functions.moodle-sync]
 verify_jwt = false
+
+[functions.study-tasks]
+verify_jwt = false
