@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState({ courses: 0, deadlines: 0, notes: 0, tasks: 0 });
   const [upcomingDeadlines, setUpcomingDeadlines] = useState<any[]>([]);
   const [currentCourses, setCurrentCourses] = useState<any[]>([]);
+  const [todayLessons, setTodayLessons] = useState<any[]>([]);
 
   useEffect(() => {
     if (!user) return;
