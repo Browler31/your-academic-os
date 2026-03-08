@@ -1,12 +1,13 @@
 import { useEffect, useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { ChevronLeft, ChevronRight, RefreshCw, Loader2, Calendar } from "lucide-react";
-import { format, startOfWeek, addDays, subDays, addWeeks, subWeeks, isSameDay } from "date-fns";
+import { ChevronLeft, ChevronRight, RefreshCw, Loader2, Calendar, MapPin, User, Clock, BookOpen } from "lucide-react";
+import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay } from "date-fns";
 import { de } from "date-fns/locale";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -24,7 +25,7 @@ interface TimetableEntry {
   course_id: string | null;
 }
 
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 7); // 07:00 - 18:00
+const HOURS = Array.from({ length: 12 }, (_, i) => i + 7);
 const DAYS = ["Mo", "Di", "Mi", "Do", "Fr"];
 
 const SUBJECT_COLORS: Record<string, string> = {};
@@ -51,12 +52,17 @@ function timeToMinutes(time: string): number {
   return h * 60 + m;
 }
 
+function formatTime(time: string): string {
+  return time?.slice(0, 5) || "";
+}
+
 export default function Timetable() {
-  const { user, session } = useAuth();
+  const { user } = useAuth();
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [syncing, setSyncing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedEntry, setSelectedEntry] = useState<TimetableEntry | null>(null);
 
   const weekStart = useMemo(
     () => startOfWeek(currentDate, { weekStartsOn: 1 }),
@@ -97,10 +103,10 @@ export default function Timetable() {
         body: { action: "sync_semester" },
       });
       if (error) throw error;
-      toast.success(`Synced ${data.total_synced} timetable entries across ${data.weeks_processed} weeks!`);
+      toast.success(`${data.total_synced} Einträge über ${data.weeks_processed} Wochen synchronisiert!`);
       await fetchEntries();
     } catch (err: any) {
-      toast.error(`Sync failed: ${err.message}`);
+      toast.error(`Sync fehlgeschlagen: ${err.message}`);
     } finally {
       setSyncing(false);
     }
@@ -109,15 +115,14 @@ export default function Timetable() {
   const entriesByDay = useMemo(() => {
     const map: Record<string, TimetableEntry[]> = {};
     for (const e of entries) {
-      const key = e.date;
-      if (!map[key]) map[key] = [];
-      map[key].push(e);
+      if (!map[e.date]) map[e.date] = [];
+      map[e.date].push(e);
     }
     return map;
   }, [entries]);
 
   const startHour = 7;
-  const hourHeight = 64; // px per hour
+  const hourHeight = 64;
 
   return (
     <DashboardLayout>
@@ -178,7 +183,6 @@ export default function Timetable() {
 
               {/* Time grid */}
               <div className="relative col-span-full grid grid-cols-[60px_repeat(5,1fr)]" style={{ height: HOURS.length * hourHeight }}>
-                {/* Hour labels */}
                 {HOURS.map((h) => (
                   <div
                     key={h}
@@ -191,7 +195,6 @@ export default function Timetable() {
                   </div>
                 ))}
 
-                {/* Hour grid lines */}
                 {HOURS.map((h) => (
                   <div
                     key={`line-${h}`}
@@ -200,7 +203,6 @@ export default function Timetable() {
                   />
                 ))}
 
-                {/* Day columns */}
                 {weekDates.map((d, dayIdx) => {
                   const dateStr = format(d, "yyyy-MM-dd");
                   const dayEntries = entriesByDay[dateStr] || [];
@@ -228,15 +230,18 @@ export default function Timetable() {
                         return (
                           <div
                             key={entry.id}
+                            onClick={() => setSelectedEntry(entry)}
                             className={cn(
-                              "absolute left-1 right-1 rounded-md border px-2 py-1 overflow-hidden cursor-default transition-shadow hover:shadow-md",
+                              "absolute left-1 right-1 rounded-md border px-2 py-1 overflow-hidden cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] active:scale-100",
                               colorClass
                             )}
                             style={{ top, height: Math.max(height, 24) }}
                           >
-                            <p className="text-xs font-bold truncate">{entry.subject_short}</p>
+                            <p className="text-xs font-bold truncate">{entry.subject_name}</p>
                             {height > 40 && (
-                              <p className="text-[10px] opacity-80 truncate">{entry.subject_name}</p>
+                              <p className="text-[10px] opacity-70 truncate">
+                                {formatTime(entry.start_time)} – {formatTime(entry.end_time)}
+                              </p>
                             )}
                             {height > 56 && entry.room_name && (
                               <p className="text-[10px] opacity-60 truncate">{entry.room_name}</p>
@@ -273,6 +278,71 @@ export default function Timetable() {
             <p className="text-sm">Klicke "Semester synchen" um deinen WebUntis-Stundenplan zu importieren.</p>
           </div>
         )}
+
+        {/* Detail dialog */}
+        <Dialog open={!!selectedEntry} onOpenChange={(open) => !open && setSelectedEntry(null)}>
+          <DialogContent className="sm:max-w-md">
+            {selectedEntry && (
+              <>
+                <DialogHeader>
+                  <DialogTitle className="text-xl">{selectedEntry.subject_name}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-2">
+                  <div className="flex items-center gap-3 text-sm">
+                    <BookOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div>
+                      <p className="text-muted-foreground text-xs">Kürzel</p>
+                      <p className="font-medium">{selectedEntry.subject_short}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 text-sm">
+                    <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                    <div>
+                      <p className="text-muted-foreground text-xs">Zeit</p>
+                      <p className="font-medium">
+                        {format(new Date(selectedEntry.date), "EEEE, d. MMMM yyyy", { locale: de })}
+                        <br />
+                        {formatTime(selectedEntry.start_time)} – {formatTime(selectedEntry.end_time)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {selectedEntry.room_name && (
+                    <div className="flex items-center gap-3 text-sm">
+                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div>
+                        <p className="text-muted-foreground text-xs">Raum</p>
+                        <p className="font-medium">{selectedEntry.room_name}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedEntry.teacher_name && (
+                    <div className="flex items-center gap-3 text-sm">
+                      <User className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <div>
+                        <p className="text-muted-foreground text-xs">Dozent/in</p>
+                        <p className="font-medium">{selectedEntry.teacher_name}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedEntry.course_id && (
+                    <div className="rounded-lg border bg-muted/30 p-3">
+                      <p className="text-xs text-muted-foreground">✓ Verknüpft mit Moodle-Kurs</p>
+                    </div>
+                  )}
+                  {!selectedEntry.course_id && (
+                    <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+                      <p className="text-xs text-warning">⚠ Kein Moodle-Kurs zugeordnet</p>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );
