@@ -145,7 +145,7 @@ export default function Tasks() {
 
         {/* Task list */}
         <div className="mt-8">
-          <Tabs value={tab} onValueChange={(v) => { setTab(v); setLoading(true); }}>
+          <Tabs value={tab} onValueChange={(v) => { setTab(v as TaskStatus); setLoading(true); }}>
             <TabsList>
               <TabsTrigger value="pending">Pending</TabsTrigger>
               <TabsTrigger value="in_progress">In Progress</TabsTrigger>
