@@ -12,6 +12,7 @@ import Notes from "./pages/Notes";
 import Tasks from "./pages/Tasks";
 import MoodleSync from "./pages/MoodleSync";
 import SettingsPage from "./pages/SettingsPage";
+import Flashcards from "./pages/Flashcards";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
