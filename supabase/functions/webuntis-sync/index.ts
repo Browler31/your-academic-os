@@ -141,9 +141,10 @@ function parseWebUntisResponse(data: any): {
   const allPeriods: WebUntisPeriod[] = Object.values(elementPeriods).flat() as WebUntisPeriod[];
 
   const parsed = allPeriods.map((p) => {
-    const subjectEl = p.elements?.find((e) => e.type === 4);
+    // WebUntis ZHAW: type 3 = subject, type 4 = room (not the usual convention)
+    const subjectEl = p.elements?.find((e) => e.type === 3);
     const teacherEl = p.elements?.find((e) => e.type === 2);
-    const roomEl = p.elements?.find((e) => e.type === 3);
+    const roomEl = p.elements?.find((e) => e.type === 4);
 
     return {
       date: parseDate(p.date),
@@ -197,9 +198,10 @@ async function fetchAndStoreWeek(supabase: any, userId: string, school: string, 
   const { data: courses } = await supabase.from("courses").select("id, name, short_name").eq("user_id", userId);
 
   const entries = merged.map((p) => {
-    const subjectEl = elements.get(4 * 100000 + p.subjectId);
+    // Match swapped types: subject=3, room=4
+    const subjectEl = elements.get(3 * 100000 + p.subjectId);
     const teacherEl = p.teacherId ? elements.get(2 * 100000 + p.teacherId) : null;
-    const roomEl = p.roomId ? elements.get(3 * 100000 + p.roomId) : null;
+    const roomEl = p.roomId ? elements.get(4 * 100000 + p.roomId) : null;
 
     const subjectShort = subjectEl?.name || "???";
     const subjectName = subjectEl?.longName || subjectEl?.name || "Unknown";

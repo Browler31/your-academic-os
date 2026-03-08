@@ -2,18 +2,23 @@ import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { FileText, ChevronDown, ChevronRight } from "lucide-react";
+import { FileText, ChevronDown, ChevronRight, Sparkles, Loader2 } from "lucide-react";
 import { cleanCourseName } from "@/lib/semester";
 import { groupBy } from "@/lib/semester";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const typeLabels: Record<string, string> = {
   lernziel: "Lernziel",
   prep: "Vorbereitung",
   general: "Allgemein",
   summary: "Zusammenfassung",
+  exercise: "Übung",
+  reading: "Pflichtlektüre",
+  organizational: "Organisatorisches",
 };
 
 const typeColors: Record<string, string> = {
@@ -21,6 +26,9 @@ const typeColors: Record<string, string> = {
   prep: "bg-warning/10 text-warning border-warning/20",
   general: "bg-secondary text-secondary-foreground border-border",
   summary: "bg-primary/10 text-primary border-primary/20",
+  exercise: "bg-warning/10 text-warning border-warning/20",
+  reading: "bg-primary/10 text-primary border-primary/20",
+  organizational: "bg-muted text-muted-foreground border-border",
 };
 
 export default function Notes() {
@@ -28,24 +36,42 @@ export default function Notes() {
   const [notes, setNotes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedCourses, setExpandedCourses] = useState<Set<string>>(new Set());
+  const [classifying, setClassifying] = useState(false);
 
-  useEffect(() => {
+  const fetchNotes = async () => {
     if (!user) return;
-    supabase
+    const { data } = await supabase
       .from("notes")
       .select("*, courses(name, short_name)")
       .eq("user_id", user.id)
-      .order("created_at", { ascending: false })
-      .then(({ data }) => {
-        setNotes(data || []);
-        // Auto-expand first course
-        if (data && data.length > 0) {
-          const firstCourse = data[0].courses?.name || "Ohne Kurs";
-          setExpandedCourses(new Set([firstCourse]));
-        }
-        setLoading(false);
-      });
+      .order("created_at", { ascending: false });
+    setNotes(data || []);
+    if (data && data.length > 0) {
+      const firstCourse = data[0].courses?.name || "Ohne Kurs";
+      setExpandedCourses((prev) => prev.size === 0 ? new Set([firstCourse]) : prev);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    fetchNotes();
   }, [user]);
+
+  const handleClassify = async () => {
+    setClassifying(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("note-classifier", {
+        body: { action: "classify_notes" },
+      });
+      if (error) throw error;
+      toast.success(`${data.classified} von ${data.total_processed} Notizen klassifiziert!`);
+      await fetchNotes();
+    } catch (err: any) {
+      toast.error(`Klassifizierung fehlgeschlagen: ${err.message}`);
+    } finally {
+      setClassifying(false);
+    }
+  };
 
   const toggleCourse = (courseName: string) => {
     setExpandedCourses((prev) => {
@@ -69,11 +95,23 @@ export default function Notes() {
   return (
     <DashboardLayout>
       <div className="animate-fade-in">
-        <h1 className="text-3xl font-bold tracking-tight">Notes</h1>
-        <p className="mt-1 text-muted-foreground">
-          {notes.length} Notizen aus {courseNames.length} Kursen.
-        </p>
-
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Notes</h1>
+            <p className="mt-1 text-muted-foreground">
+              {notes.length} Notizen aus {courseNames.length} Kursen.
+            </p>
+          </div>
+          {notes.some((n) => n.note_type === "general") && (
+            <Button onClick={handleClassify} disabled={classifying} variant="outline">
+              {classifying ? (
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Klassifiziere...</>
+              ) : (
+                <><Sparkles className="mr-2 h-4 w-4" /> AI Klassifizierung</>
+              )}
+            </Button>
+          )}
+        </div>
         {loading ? (
           <div className="mt-8 space-y-4">
             {[1, 2, 3].map((i) => (
