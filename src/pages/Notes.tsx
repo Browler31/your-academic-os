@@ -2,18 +2,23 @@ import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { FileText, ChevronDown, ChevronRight } from "lucide-react";
+import { FileText, ChevronDown, ChevronRight, Sparkles, Loader2 } from "lucide-react";
 import { cleanCourseName } from "@/lib/semester";
 import { groupBy } from "@/lib/semester";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 const typeLabels: Record<string, string> = {
   lernziel: "Lernziel",
   prep: "Vorbereitung",
   general: "Allgemein",
   summary: "Zusammenfassung",
+  exercise: "Übung",
+  reading: "Pflichtlektüre",
+  organizational: "Organisatorisches",
 };
 
 const typeColors: Record<string, string> = {
