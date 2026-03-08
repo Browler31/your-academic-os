@@ -1,4 +1,4 @@
-import { LayoutDashboard, BookOpen, Clock, FileText, ListTodo, RefreshCw, Settings } from "lucide-react";
+import { LayoutDashboard, BookOpen, Clock, FileText, ListTodo, RefreshCw, Settings, CalendarDays } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
