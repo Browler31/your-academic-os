@@ -37,6 +37,13 @@ export default function MoodleSync() {
   const [syncResults, setSyncResults] = useState<{ course: string; files: number; notes: number }[]>([]);
   const [syncErrors, setSyncErrors] = useState<string[]>([]);
 
+  // Auto-parse pipeline state
+  const [pipelinePhase, setPipelinePhase] = useState<string>("");
+  const [parseProgress, setParseProgress] = useState(0);
+  const [parseTotal, setParseTotal] = useState(0);
+  const [parsedCount, setParsedCount] = useState(0);
+  const [flashcardsGenerated, setFlashcardsGenerated] = useState(0);
+
   useEffect(() => {
     if (!session?.user?.id) return;
     (async () => {
@@ -148,14 +155,100 @@ export default function MoodleSync() {
 
       const totalFiles = results.reduce((s, r) => s + r.files, 0);
       const totalNotes = results.reduce((s, r) => s + r.notes, 0);
-      toast.success(`Done! ${totalFiles} files, ${totalNotes} notes from ${coursesToSync.length} courses`);
+      toast.success(`Sync done! ${totalFiles} files, ${totalNotes} notes. Starting auto-parse...`);
+
+      // Phase 3: Auto-parse pipeline
+      await runAutoParsePipeline();
     } catch (error: any) {
       toast.error(`Sync failed: ${error.message}`);
     } finally {
       setSyncing(false);
       setSyncPhase("");
       setCurrentCourse("");
+      setPipelinePhase("");
     }
+  };
+
+  const runAutoParsePipeline = async () => {
+    if (!session?.user?.id) return;
+
+    // Step 1: Find unparsed PDF files
+    setPipelinePhase("Finding unparsed files...");
+    const { data: unparsed } = await supabase
+      .from("files")
+      .select("id, file_name, course_id")
+      .eq("user_id", session.user.id)
+      .is("extracted_content", null)
+      .in("extraction_status", ["pending", "error"])
+      .not("file_name", "not.ilike", "%.pdf");
+
+    const pdfFiles = (unparsed || []).filter(f => f.file_name.toLowerCase().endsWith(".pdf"));
+    if (pdfFiles.length === 0) {
+      setPipelinePhase("No new PDFs to parse.");
+      return;
+    }
+
+    setParseTotal(pdfFiles.length);
+    setParsedCount(0);
+    setPipelinePhase(`Parsing ${pdfFiles.length} PDFs with AI...`);
+
+    // Step 2: Parse each PDF
+    const parsedFileIds: { id: string; course_id: string | null }[] = [];
+    for (let i = 0; i < pdfFiles.length; i++) {
+      setParseProgress(i + 1);
+      try {
+        await supabase.functions.invoke("parse-pdf", {
+          body: { action: "parse", file_id: pdfFiles[i].id },
+        });
+        parsedFileIds.push({ id: pdfFiles[i].id, course_id: pdfFiles[i].course_id });
+        setParsedCount(prev => prev + 1);
+      } catch (err: any) {
+        console.error(`Parse failed for ${pdfFiles[i].file_name}:`, err.message);
+        // Continue with next file on error
+      }
+    }
+
+    // Step 3: Auto-generate flashcards from parsed content
+    if (parsedFileIds.length > 0) {
+      setPipelinePhase("Generating flashcards from parsed content...");
+      let fcCount = 0;
+
+      // Get notes linked to parsed courses for flashcard generation
+      const courseIds = [...new Set(parsedFileIds.map(f => f.course_id).filter(Boolean))];
+      if (courseIds.length > 0) {
+        const { data: notes } = await supabase
+          .from("notes")
+          .select("id, course_id")
+          .eq("user_id", session.user.id)
+          .in("course_id", courseIds as string[])
+          .not("content", "is", null);
+
+        // Check which notes don't have flashcards yet
+        const { data: existingFcNotes } = await supabase
+          .from("flashcards")
+          .select("note_id")
+          .eq("user_id", session.user.id);
+
+        const existingNoteIds = new Set((existingFcNotes || []).map(f => f.note_id));
+        const notesToGenerate = (notes || []).filter(n => !existingNoteIds.has(n.id)).slice(0, 10);
+
+        for (const note of notesToGenerate) {
+          try {
+            const { data } = await supabase.functions.invoke("generate-anki-cards", {
+              body: { action: "generate", note_id: note.id },
+            });
+            fcCount += data?.created || 0;
+          } catch (err: any) {
+            console.error(`Flashcard gen failed for note ${note.id}:`, err.message);
+          }
+        }
+      }
+
+      setFlashcardsGenerated(fcCount);
+    }
+
+    setPipelinePhase(`Pipeline done! ${parsedFileIds.length} PDFs parsed, ${flashcardsGenerated} flashcards.`);
+    toast.success(`🚀 Auto-pipeline: ${parsedFileIds.length} PDFs parsed, flashcards generated!`);
   };
 
   if (!profileLoaded) {
@@ -251,6 +344,28 @@ export default function MoodleSync() {
                   <ul className="mt-1 list-disc list-inside text-xs">
                     {syncErrors.map((e, i) => <li key={i}>{e}</li>)}
                   </ul>
+                </div>
+              )}
+
+              {/* Auto-parse pipeline progress */}
+              {pipelinePhase && (
+                <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="font-medium text-primary">{pipelinePhase}</span>
+                  </div>
+                  {parseTotal > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Parsing PDF {parseProgress}/{parseTotal}</span>
+                        <span>{parsedCount} done</span>
+                      </div>
+                      <Progress value={(parseProgress / parseTotal) * 100} />
+                    </div>
+                  )}
+                  {flashcardsGenerated > 0 && (
+                    <p className="text-xs text-muted-foreground">✨ {flashcardsGenerated} flashcards generated</p>
+                  )}
                 </div>
               )}
             </CardContent>

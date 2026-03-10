@@ -74,7 +74,7 @@ async function gatherContext(supabase: any, userId: string) {
   const today = new Date().toISOString().split("T")[0];
   const nextWeek = new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0];
 
-  const [coursesRes, notesRes, deadlinesRes, timetableRes, existingTasksRes] = await Promise.all([
+  const [coursesRes, notesRes, deadlinesRes, timetableRes, existingTasksRes, parsedFilesRes] = await Promise.all([
     supabase.from("courses").select("id, name, short_name").eq("user_id", userId),
     supabase.from("notes").select("id, title, content, note_type, course_id").eq("user_id", userId).order("created_at"),
     supabase.from("deadlines").select("id, title, description, due_date, course_id, is_completed")
@@ -83,6 +83,8 @@ async function gatherContext(supabase: any, userId: string) {
       .eq("user_id", userId).gte("date", today).lte("date", nextWeek).order("date").order("start_time"),
     supabase.from("tasks").select("id, title, status, task_type, course_id, scheduled_for, due_date")
       .eq("user_id", userId).in("status", ["pending", "in_progress"]),
+    supabase.from("files").select("id, file_name, course_id, extracted_content")
+      .eq("user_id", userId).eq("extraction_status", "done").not("extracted_content", "is", null),
   ]);
 
   return {
@@ -91,6 +93,7 @@ async function gatherContext(supabase: any, userId: string) {
     deadlines: deadlinesRes.data || [],
     timetable: timetableRes.data || [],
     existingTasks: existingTasksRes.data || [],
+    parsedFiles: parsedFilesRes.data || [],
   };
 }
 
@@ -335,6 +338,39 @@ function buildPrompt(ctx: any, courseMap: Record<string, string>, scope: "week" 
     for (const t of ctx.existingTasks) {
       prompt += `- [${t.status}] "${t.title}" (type: ${t.task_type}, scheduled: ${t.scheduled_for || "unscheduled"})\n`;
     }
+  }
+
+  // Parsed legal content from PDFs
+  prompt += `\n## Extracted legal content from parsed PDFs (use for targeted study tasks!):\n`;
+  if (ctx.parsedFiles && ctx.parsedFiles.length > 0) {
+    const byCourseParsed: Record<string, any[]> = {};
+    for (const f of ctx.parsedFiles) {
+      const key = f.course_id || "none";
+      if (!byCourseParsed[key]) byCourseParsed[key] = [];
+      byCourseParsed[key].push(f);
+    }
+
+    for (const [courseId, files] of Object.entries(byCourseParsed)) {
+      const courseName = courseId !== "none" ? courseMap[courseId] || "Unknown" : "No course";
+      prompt += `\n### ${courseName} (parsed PDFs):\n`;
+      for (const f of files as any[]) {
+        const ext = f.extracted_content;
+        if (!ext) continue;
+        prompt += `File: "${f.file_name}"\n`;
+        if (ext.summary) prompt += `Summary: ${ext.summary}\n`;
+        if (ext.norms?.length > 0) {
+          prompt += `Norms: ${ext.norms.slice(0, 8).map((n: any) =>
+            `${n.article} (TBM: ${(n.tbm || []).join(", ")}, importance: ${n.importance}/5)`
+          ).join("; ")}\n`;
+        }
+        if (ext.key_concepts?.length > 0) {
+          prompt += `Concepts: ${ext.key_concepts.slice(0, 5).map((c: any) => c.concept).join(", ")}\n`;
+        }
+        prompt += `---\n`;
+      }
+    }
+  } else {
+    prompt += "No parsed PDFs yet.\n";
   }
 
   prompt += `\n## Instructions:\n- Create ${scope === "today" ? "3-6 tasks for today" : "15-25 tasks for the next 7 days"}\n- Vorbereitungsaufgaben from notes should be scheduled the day BEFORE the corresponding lecture\n- After each lecture day, schedule a 25-min review task\n- Extract specific questions/exercises from note content as individual tasks\n- Use the exact course IDs from the list above\n- Set scheduled_for to specific dates (YYYY-MM-DD format)\n- Priority: deadline proximity → exam prep → prep_reading → lecture_review → exercises`;
