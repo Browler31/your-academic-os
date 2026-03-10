@@ -74,7 +74,7 @@ async function gatherContext(supabase: any, userId: string) {
   const today = new Date().toISOString().split("T")[0];
   const nextWeek = new Date(Date.now() + 14 * 86400000).toISOString().split("T")[0];
 
-  const [coursesRes, notesRes, deadlinesRes, timetableRes, existingTasksRes] = await Promise.all([
+  const [coursesRes, notesRes, deadlinesRes, timetableRes, existingTasksRes, parsedFilesRes] = await Promise.all([
     supabase.from("courses").select("id, name, short_name").eq("user_id", userId),
     supabase.from("notes").select("id, title, content, note_type, course_id").eq("user_id", userId).order("created_at"),
     supabase.from("deadlines").select("id, title, description, due_date, course_id, is_completed")
@@ -83,6 +83,8 @@ async function gatherContext(supabase: any, userId: string) {
       .eq("user_id", userId).gte("date", today).lte("date", nextWeek).order("date").order("start_time"),
     supabase.from("tasks").select("id, title, status, task_type, course_id, scheduled_for, due_date")
       .eq("user_id", userId).in("status", ["pending", "in_progress"]),
+    supabase.from("files").select("id, file_name, course_id, extracted_content")
+      .eq("user_id", userId).eq("extraction_status", "done").not("extracted_content", "is", null),
   ]);
 
   return {
@@ -91,6 +93,7 @@ async function gatherContext(supabase: any, userId: string) {
     deadlines: deadlinesRes.data || [],
     timetable: timetableRes.data || [],
     existingTasks: existingTasksRes.data || [],
+    parsedFiles: parsedFilesRes.data || [],
   };
 }
 

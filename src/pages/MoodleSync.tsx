@@ -346,6 +346,28 @@ export default function MoodleSync() {
                   </ul>
                 </div>
               )}
+
+              {/* Auto-parse pipeline progress */}
+              {pipelinePhase && (
+                <div className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                    <span className="font-medium text-primary">{pipelinePhase}</span>
+                  </div>
+                  {parseTotal > 0 && (
+                    <div className="space-y-1">
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Parsing PDF {parseProgress}/{parseTotal}</span>
+                        <span>{parsedCount} done</span>
+                      </div>
+                      <Progress value={(parseProgress / parseTotal) * 100} />
+                    </div>
+                  )}
+                  {flashcardsGenerated > 0 && (
+                    <p className="text-xs text-muted-foreground">✨ {flashcardsGenerated} flashcards generated</p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
