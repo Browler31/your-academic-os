@@ -340,6 +340,39 @@ function buildPrompt(ctx: any, courseMap: Record<string, string>, scope: "week" 
     }
   }
 
+  // Parsed legal content from PDFs
+  prompt += `\n## Extracted legal content from parsed PDFs (use for targeted study tasks!):\n`;
+  if (ctx.parsedFiles && ctx.parsedFiles.length > 0) {
+    const byCourseParsed: Record<string, any[]> = {};
+    for (const f of ctx.parsedFiles) {
+      const key = f.course_id || "none";
+      if (!byCourseParsed[key]) byCourseParsed[key] = [];
+      byCourseParsed[key].push(f);
+    }
+
+    for (const [courseId, files] of Object.entries(byCourseParsed)) {
+      const courseName = courseId !== "none" ? courseMap[courseId] || "Unknown" : "No course";
+      prompt += `\n### ${courseName} (parsed PDFs):\n`;
+      for (const f of files as any[]) {
+        const ext = f.extracted_content;
+        if (!ext) continue;
+        prompt += `File: "${f.file_name}"\n`;
+        if (ext.summary) prompt += `Summary: ${ext.summary}\n`;
+        if (ext.norms?.length > 0) {
+          prompt += `Norms: ${ext.norms.slice(0, 8).map((n: any) =>
+            `${n.article} (TBM: ${(n.tbm || []).join(", ")}, importance: ${n.importance}/5)`
+          ).join("; ")}\n`;
+        }
+        if (ext.key_concepts?.length > 0) {
+          prompt += `Concepts: ${ext.key_concepts.slice(0, 5).map((c: any) => c.concept).join(", ")}\n`;
+        }
+        prompt += `---\n`;
+      }
+    }
+  } else {
+    prompt += "No parsed PDFs yet.\n";
+  }
+
   prompt += `\n## Instructions:\n- Create ${scope === "today" ? "3-6 tasks for today" : "15-25 tasks for the next 7 days"}\n- Vorbereitungsaufgaben from notes should be scheduled the day BEFORE the corresponding lecture\n- After each lecture day, schedule a 25-min review task\n- Extract specific questions/exercises from note content as individual tasks\n- Use the exact course IDs from the list above\n- Set scheduled_for to specific dates (YYYY-MM-DD format)\n- Priority: deadline proximity → exam prep → prep_reading → lecture_review → exercises`;
 
   return prompt;
