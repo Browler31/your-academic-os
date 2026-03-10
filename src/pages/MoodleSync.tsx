@@ -37,6 +37,13 @@ export default function MoodleSync() {
   const [syncResults, setSyncResults] = useState<{ course: string; files: number; notes: number }[]>([]);
   const [syncErrors, setSyncErrors] = useState<string[]>([]);
 
+  // Auto-parse pipeline state
+  const [pipelinePhase, setPipelinePhase] = useState<string>("");
+  const [parseProgress, setParseProgress] = useState(0);
+  const [parseTotal, setParseTotal] = useState(0);
+  const [parsedCount, setParsedCount] = useState(0);
+  const [flashcardsGenerated, setFlashcardsGenerated] = useState(0);
+
   useEffect(() => {
     if (!session?.user?.id) return;
     (async () => {
