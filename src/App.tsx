@@ -15,12 +15,13 @@ import SettingsPage from "./pages/SettingsPage";
 import Flashcards from "./pages/Flashcards";
 import Files from "./pages/Files";
 import Analytics from "./pages/Analytics";
+import Auth from "./pages/Auth";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-function AppRoutes() {
-  const { loading } = useAuth();
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -28,20 +29,25 @@ function AppRoutes() {
       </div>
     );
   }
+  if (!user) return <Navigate to="/auth" replace />;
+  return <>{children}</>;
+}
 
+function AppRoutes() {
   return (
     <Routes>
-      <Route path="/dashboard" element={<Dashboard />} />
-      <Route path="/tasks" element={<Tasks />} />
-      <Route path="/courses" element={<Courses />} />
-      <Route path="/deadlines" element={<Deadlines />} />
-      <Route path="/timetable" element={<Timetable />} />
-      <Route path="/notes" element={<Notes />} />
-      <Route path="/files" element={<Files />} />
-      <Route path="/flashcards" element={<Flashcards />} />
-      <Route path="/analytics" element={<Analytics />} />
-      <Route path="/moodle-sync" element={<MoodleSync />} />
-      <Route path="/settings" element={<SettingsPage />} />
+      <Route path="/auth" element={<Auth />} />
+      <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/tasks" element={<ProtectedRoute><Tasks /></ProtectedRoute>} />
+      <Route path="/courses" element={<ProtectedRoute><Courses /></ProtectedRoute>} />
+      <Route path="/deadlines" element={<ProtectedRoute><Deadlines /></ProtectedRoute>} />
+      <Route path="/timetable" element={<ProtectedRoute><Timetable /></ProtectedRoute>} />
+      <Route path="/notes" element={<ProtectedRoute><Notes /></ProtectedRoute>} />
+      <Route path="/files" element={<ProtectedRoute><Files /></ProtectedRoute>} />
+      <Route path="/flashcards" element={<ProtectedRoute><Flashcards /></ProtectedRoute>} />
+      <Route path="/analytics" element={<ProtectedRoute><Analytics /></ProtectedRoute>} />
+      <Route path="/moodle-sync" element={<ProtectedRoute><MoodleSync /></ProtectedRoute>} />
+      <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<NotFound />} />
     </Routes>

@@ -1,6 +1,8 @@
-import { LayoutDashboard, BookOpen, Clock, FileText, ListTodo, RefreshCw, Settings, CalendarDays, CreditCard, FolderOpen, BarChart3 } from "lucide-react";
-import { NavLink, useLocation } from "react-router-dom";
+import { LayoutDashboard, BookOpen, Clock, FileText, ListTodo, RefreshCw, Settings, CalendarDays, CreditCard, FolderOpen, BarChart3, LogOut } from "lucide-react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/useAuth";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -18,6 +20,13 @@ const navItems = [
 
 export function AppSidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/auth");
+  };
 
   return (
     <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-sidebar border-r border-sidebar-border">
@@ -48,6 +57,21 @@ export function AppSidebar() {
           );
         })}
       </nav>
+
+      {user && (
+        <div className="border-t border-sidebar-border p-3">
+          <div className="flex items-center gap-3 rounded-lg px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-medium text-sidebar-foreground truncate">
+                {user.email}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground/50 hover:text-sidebar-foreground" onClick={handleSignOut}>
+              <LogOut className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
