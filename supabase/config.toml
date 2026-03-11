@@ -1,0 +1,19 @@
+project_id = "jgquapwuqvthpvgsvabi"
+
+[functions.moodle-sync]
+verify_jwt = false
+
+[functions.study-tasks]
+verify_jwt = false
+
+[functions.webuntis-sync]
+verify_jwt = false
+
+[functions.note-classifier]
+verify_jwt = false
+
+[functions.study-planner]
+verify_jwt = false
+
+[functions.generate-anki-cards]
+verify_jwt = false
