@@ -143,63 +143,55 @@ export default function MoodleSync() {
     }
   };
 
-  const handleSync = async () => {
-    setSyncing(true);
-    setSyncResults([]);
-    setSyncErrors([]);
-    setSyncProgress(0);
+  const [availableSemesters, setAvailableSemesters] = useState<string[]>([]);
+  const [selectedSemester, setSelectedSemester] = useState<string>("all");
 
+  const loadSemesters = async () => {
     try {
-      // Phase 1: Sync course list + deadlines
-      setSyncPhase("Syncing courses & deadlines...");
-      const phase1 = await callMoodleSync("sync_all");
-      const coursesToSync: CourseToSync[] = phase1.courses_to_sync || [];
-      setSyncTotal(coursesToSync.length);
-
-      // Phase 2: Sync each course's files individually
-      setSyncPhase("Syncing files & notes...");
-      const results: typeof syncResults = [];
-      const errors: string[] = [];
-
-      for (let i = 0; i < coursesToSync.length; i++) {
-        const course = coursesToSync[i];
-        setCurrentCourse(course.short_name || course.name);
-        setSyncProgress(i + 1);
-
-        try {
-          const res = await callMoodleSync("sync_course", {
-            moodle_course_id: course.moodle_course_id,
-            course_db_id: course.id,
-          });
-          if (res.files > 0 || res.notes > 0) {
-            results.push({
-              course: course.short_name || course.name,
-              files: res.files,
-              notes: res.notes,
-            });
-          }
-        } catch (err: any) {
-          errors.push(`${course.short_name || course.name}: ${err.message}`);
+      const res = await callMoodleSync("get_available_semesters");
+      if (res?.semesters?.length) {
+        setAvailableSemesters(res.semesters);
+        // Default to first (most recent) semester
+        if (selectedSemester === "all") {
+          setSelectedSemester(res.semesters[0]);
         }
       }
+    } catch {}
+  };
 
-      setSyncResults(results);
-      setSyncErrors(errors);
+  useEffect(() => {
+    if (isVerified && moodleToken) {
+      loadSemesters();
+    }
+  }, [isVerified, moodleToken]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncPhase("Sync läuft im Hintergrund auf dem Server...");
+    setSyncResults([]);
+    setSyncErrors([]);
+
+    try {
+      const res = await callMoodleSync("sync_all", {
+        semester_filter: selectedSemester,
+        sync_files: true,
+      });
+
+      toast.success(res.message || "Sync erfolgreich abgeschlossen!");
+      setSyncResults([
+        {
+          course: `${res.synced_courses} Kurse (${selectedSemester === "all" ? "Alle Semester" : selectedSemester})`,
+          files: res.total_files || 0,
+          notes: res.total_notes || 0,
+        },
+      ]);
       setLastSynced(new Date().toISOString());
-
-      const totalFiles = results.reduce((s, r) => s + r.files, 0);
-      const totalNotes = results.reduce((s, r) => s + r.notes, 0);
-      toast.success(`Sync done! ${totalFiles} files, ${totalNotes} notes. Starting auto-parse...`);
-
-      // Phase 3: Auto-parse pipeline
-      await runAutoParsePipeline();
     } catch (error: any) {
-      toast.error(`Sync failed: ${error.message}`);
+      toast.error(`Sync fehlgeschlagen: ${error.message}`);
+      setSyncErrors([error.message]);
     } finally {
       setSyncing(false);
       setSyncPhase("");
-      setCurrentCourse("");
-      setPipelinePhase("");
     }
   };
 
@@ -331,14 +323,50 @@ export default function MoodleSync() {
                 </Button>
               </div>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <Button onClick={handleSync} disabled={syncing} className="w-full">
-                {syncing ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {syncPhase}</>
-                ) : (
-                  <><RefreshCw className="mr-2 h-4 w-4" /> Sync Now</>
-                )}
-              </Button>
+            <CardContent className="space-y-5">
+              {/* Semester filter */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Semester-Filter
+                  </Label>
+                  <span className="text-xs text-muted-foreground">
+                    {selectedSemester === "all" ? "Alle Kurse" : `Nur ${selectedSemester}`}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge
+                    variant={selectedSemester === "all" ? "default" : "outline"}
+                    className="cursor-pointer px-3 py-1 text-xs transition-colors"
+                    onClick={() => setSelectedSemester("all")}
+                  >
+                    Alle Semester
+                  </Badge>
+                  {availableSemesters.map((sem) => (
+                    <Badge
+                      key={sem}
+                      variant={selectedSemester === sem ? "default" : "outline"}
+                      className="cursor-pointer px-3 py-1 text-xs transition-colors"
+                      onClick={() => setSelectedSemester(sem)}
+                    >
+                      {sem.includes("FS") ? `Frühlingssemester ${sem.split("-")[0]} (${sem})` : sem.includes("HS") ? `Herbstsemester ${sem.split("-")[0]} (${sem})` : sem}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Button onClick={handleSync} disabled={syncing} className="w-full" size="lg">
+                  {syncing ? (
+                    <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> {syncPhase}</>
+                  ) : (
+                    <><RefreshCw className="mr-2 h-4 w-4" /> {selectedSemester === "all" ? "Alle Kurse synchronisieren" : `${selectedSemester} synchronisieren`}</>
+                  )}
+                </Button>
+                <p className="text-center text-xs text-muted-foreground">
+                  ⚡ Läuft serverseitig — du kannst die Seite nach dem Klick sofort verlassen.
+                </p>
+              </div>
 
               {/* Progress bar */}
               {syncing && syncTotal > 0 && (
