@@ -62,13 +62,13 @@ export function AppSidebar() {
         <div className="border-t border-sidebar-border p-3">
           <div className="flex items-center gap-3 rounded-lg px-3 py-2">
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-sidebar-foreground truncate">
-                {user.email}
+              <p className="text-sm font-medium text-sidebar-foreground truncate">
+                {user.user_metadata?.full_name || "Marc"}
+              </p>
+              <p className="text-xs text-sidebar-foreground/60 truncate">
+                {user.email || "marc@zhaw.ch"}
               </p>
             </div>
-            <Button variant="ghost" size="icon" className="h-8 w-8 text-sidebar-foreground/50 hover:text-sidebar-foreground" onClick={handleSignOut}>
-              <LogOut className="h-4 w-4" />
-            </Button>
           </div>
         </div>
       )}

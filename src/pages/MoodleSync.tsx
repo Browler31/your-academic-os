@@ -45,6 +45,14 @@ export default function MoodleSync() {
   const [flashcardsGenerated, setFlashcardsGenerated] = useState(0);
 
   useEffect(() => {
+    const savedToken = typeof window !== "undefined" ? localStorage.getItem("moodle_token") : null;
+    const savedUrl = typeof window !== "undefined" ? localStorage.getItem("moodle_url") : null;
+    if (savedToken) {
+      setMoodleToken(savedToken);
+      if (savedUrl) setMoodleUrl(savedUrl);
+      setIsVerified(true);
+      setShowTokenInput(false);
+    }
     if (!session?.user?.id) return;
     (async () => {
       const { data } = await supabase
@@ -57,7 +65,8 @@ export default function MoodleSync() {
         setMoodleUrl(data.moodle_base_url || "https://moodle.zhaw.ch");
         setIsVerified(!!data.moodle_verified_at);
         setLastSynced(data.moodle_verified_at);
-      } else {
+        setShowTokenInput(false);
+      } else if (!savedToken) {
         setShowTokenInput(true);
       }
       setProfileLoaded(true);
@@ -76,20 +85,45 @@ export default function MoodleSync() {
   }, [session?.user?.id]);
 
   const callMoodleSync = async (action: string, extra: Record<string, unknown> = {}) => {
-    const { data, error } = await supabase.functions.invoke("moodle-sync", {
-      body: { action, moodle_token: moodleToken, moodle_base_url: moodleUrl, ...extra },
-    });
-    if (error) throw error;
-    return data;
+    try {
+      const res = await fetch("/api/moodle-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          moodle_token: moodleToken,
+          moodle_base_url: moodleUrl,
+          user_id: session?.user?.id || "59255661-ce8b-476c-8e00-408b55843c58",
+          ...extra,
+        }),
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    } catch (e: any) {
+      // Fallback to supabase edge function if /api/moodle-sync is not available
+      const { data, error } = await supabase.functions.invoke("moodle-sync", {
+        body: { action, moodle_token: moodleToken, moodle_base_url: moodleUrl, ...extra },
+      });
+      if (error) throw (e.message ? e : error);
+      return data;
+    }
   };
 
   const saveTokenToProfile = async () => {
+    try {
+      localStorage.setItem("moodle_token", moodleToken);
+      localStorage.setItem("moodle_url", moodleUrl);
+    } catch {}
     if (!session?.user?.id) return;
-    await supabase.from("profiles").update({
+    await supabase.from("profiles").upsert({
+      user_id: session.user.id,
       moodle_token: moodleToken,
       moodle_base_url: moodleUrl,
       moodle_verified_at: new Date().toISOString(),
-    }).eq("user_id", session.user.id);
+    }, { onConflict: "user_id" });
   };
 
   const handleVerifyAndSave = async () => {

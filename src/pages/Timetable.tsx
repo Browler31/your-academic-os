@@ -99,11 +99,29 @@ export default function Timetable() {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const { data, error } = await supabase.functions.invoke("webuntis-sync", {
-        body: { action: "sync_semester" },
-      });
-      if (error) throw error;
-      toast.success(`${data.total_synced} Einträge über ${data.weeks_processed} Wochen synchronisiert!`);
+      let data: any = null;
+      try {
+        const res = await fetch("/api/webuntis-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "sync_semester", user_id: user?.id || "59255661-ce8b-476c-8e00-408b55843c58" }),
+        });
+        if (res.ok) {
+          data = await res.json();
+        }
+      } catch (apiErr) {
+        console.warn("Direct /api/webuntis-sync call failed, trying supabase function fallback:", apiErr);
+      }
+
+      if (!data) {
+        const { data: edgeData, error } = await supabase.functions.invoke("webuntis-sync", {
+          body: { action: "sync_semester" },
+        });
+        if (error) throw error;
+        data = edgeData;
+      }
+
+      toast.success(`${data.inserted ?? data.total_synced ?? "Stundenplan"} Einträge synchronisiert!`);
       await fetchEntries();
     } catch (err: any) {
       toast.error(`Sync fehlgeschlagen: ${err.message}`);
