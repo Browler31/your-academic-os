@@ -1,4 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  extractTextFromPdfBuffer,
+  extractDeadlinesFromText,
+  extractLegalNormsAndCases,
+} from "./ai";
 
 export const maxDuration = 60; // Allow up to 60 seconds on Vercel
 
@@ -31,129 +36,18 @@ async function moodleApi(baseUrl: string, token: string, func: string, params: R
   return data;
 }
 
-const GERMAN_MONTHS: Record<string, number> = {
-  januar: 1, jan: 1,
-  februar: 2, feb: 2,
-  märz: 3, maerz: 3, mrz: 3,
-  april: 4, apr: 4,
-  mai: 5,
-  juni: 6, jun: 6,
-  juli: 7, jul: 7,
-  august: 8, aug: 8,
-  september: 9, sept: 9, sep: 9,
-  oktober: 10, okt: 10,
-  november: 11, nov: 11,
-  dezember: 12, dez: 12,
-};
-
 const DEADLINE_SIGNAL_REGEX =
-  /(leistungsnachweis|usln|abgabe|einreichung|frist|deadline|prüfung|klausur|test|kurztest|zwischenprüfung|fallbearbeitung|referat|präsentation|moot|bis\s+spätestens|bis\s+zum|fällig)/i;
+  /(leistungsnachweis|usln|abgabe|einreichung|einsendung|hochladen|frist|deadline|prüfung|klausur|test|kurztest|zwischenprüfung|fallbearbeitung|referat|präsentation|moot|bis\s+spätestens|bis\s+zum|\bbis\b|fällig)/i;
 
-/**
- * Scans plain text (from Moodle section summaries or module descriptions)
- * for Swiss-German dates that appear in the context of deadlines/USLNs/exams.
- */
-function extractInlineDeadlines(
-  text: string,
-  contextTitle: string
-): Array<{ title: string; description: string; due_date: string }> {
-  if (!text || text.length < 10) return [];
-  const results: Array<{ title: string; description: string; due_date: string }> = [];
-  const seenDates = new Set<string>();
+const SYLLABUS_PDF_REGEX =
+  /(leistungsnachweis|usln|fallbearbeitung|merkblatt|modulübersicht|modulbeschreibung|semesterprogramm|semesterwochenprogramm|programm|zeitplan|termin|leitfaden|syllabus|übersicht)/i;
 
-  // Split into sentences or lines for contextual matching without splitting German ordinal dates ("20. Mai")
-  const segments = text
-    .split(/[\n\r]+|(?<!\b\d{1,2}\.)(?<!\bArt\.)(?<!\bAbs\.)(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter((s) => s.length >= 8);
-
-  const currentYear = new Date().getFullYear();
-
-  for (const seg of segments) {
-    const hasSignal =
-      DEADLINE_SIGNAL_REGEX.test(seg) || DEADLINE_SIGNAL_REGEX.test(contextTitle);
-    if (!hasSignal) continue;
-
-    // Pattern 1: DD.MM.YYYY or DD.MM.YY (with optional time HH:MM)
-    const numericRegex =
-      /\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})(?:[\s,umUhr]*(\d{1,2})[:.](\d{2}))?/g;
-    let m: RegExpExecArray | null;
-    while ((m = numericRegex.exec(seg)) !== null) {
-      const day = parseInt(m[1], 10);
-      const month = parseInt(m[2], 10);
-      let year = parseInt(m[3], 10);
-      if (year < 100) year += 2000;
-      const hour = m[4] ? parseInt(m[4], 10) : 23;
-      const minute = m[5] ? parseInt(m[5], 10) : 59;
-
-      if (month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= currentYear - 1 && year <= currentYear + 2) {
-        const dt = new Date(Date.UTC(year, month - 1, day, hour, minute));
-        if (!isNaN(dt.getTime())) {
-          const iso = dt.toISOString();
-          const key = `${iso.slice(0, 10)}-${contextTitle}`;
-          if (!seenDates.has(key)) {
-            seenDates.add(key);
-            const cleanSeg = seg.length > 110 ? seg.slice(0, 107) + "..." : seg;
-            const isUsln = /leistungsnachweis|usln/i.test(seg) || /leistungsnachweis|usln/i.test(contextTitle);
-            const prefix = isUsln ? "🎯 USLN: " : "";
-            results.push({
-              title: `${prefix}${contextTitle} (${day.toString().padStart(2, "0")}.${month.toString().padStart(2, "0")}.${year})`,
-              description: cleanSeg,
-              due_date: iso,
-            });
-          }
-        }
-      }
-    }
-
-    // Pattern 2: DD. Monat YYYY (e.g. "14. Mai 2026" or "20. April")
-    const monthNames = Object.keys(GERMAN_MONTHS).join("|");
-    const wordDateRegex = new RegExp(
-      `\\b(\\d{1,2})\\.\\s*(${monthNames})\\.?\\s*(\\d{4})?(?:[\\s,umUhr]*(\\d{1,2})[:.](\\d{2}))?`,
-      "gi"
-    );
-    while ((m = wordDateRegex.exec(seg)) !== null) {
-      const day = parseInt(m[1], 10);
-      const monthName = m[2].toLowerCase();
-      const month = GERMAN_MONTHS[monthName];
-      const year = m[3] ? parseInt(m[3], 10) : currentYear;
-      const hour = m[4] ? parseInt(m[4], 10) : 23;
-      const minute = m[5] ? parseInt(m[5], 10) : 59;
-
-      if (month && day >= 1 && day <= 31 && year >= currentYear - 1 && year <= currentYear + 2) {
-        const dt = new Date(Date.UTC(year, month - 1, day, hour, minute));
-        if (!isNaN(dt.getTime())) {
-          const iso = dt.toISOString();
-          const key = `${iso.slice(0, 10)}-${contextTitle}`;
-          if (!seenDates.has(key)) {
-            seenDates.add(key);
-            const cleanSeg = seg.length > 110 ? seg.slice(0, 107) + "..." : seg;
-            const isUsln = /leistungsnachweis|usln/i.test(seg) || /leistungsnachweis|usln/i.test(contextTitle);
-            const prefix = isUsln ? "🎯 USLN: " : "";
-            results.push({
-              title: `${prefix}${contextTitle} (${day.toString().padStart(2, "0")}.${month.toString().padStart(2, "0")}.${year})`,
-              description: cleanSeg,
-              due_date: iso,
-            });
-          }
-        }
-      }
-    }
-  }
-
-  return results;
-}
-
-/**
- * Parses semester code like "2026-FS" or "2025-HS" from course full/short name.
- * Format: w.BA.XX.nameofcourse-RE.Year.Semester
- */
 function extractSemester(name: string, shortName?: string | null): string {
   const text = `${shortName || ""} ${name || ""}`;
   const match = text.match(/(\d{4})[.-](FS|HS)/i) || text.match(/(FS|HS)[-\s.]*(\d{4})/i);
   if (match) {
     if (match[1].length === 4) {
-      return `${match[1]}-${match[2].toUpperCase()}`; // e.g. "2026-FS"
+      return `${match[1]}-${match[2].toUpperCase()}`;
     } else {
       return `${match[2]}-${match[1].toUpperCase()}`;
     }
@@ -176,17 +70,57 @@ function courseMatchesSemester(course: any, filter?: string): boolean {
   return sem.toUpperCase() === norm || sem.toUpperCase() === reversed;
 }
 
+function classifyNoteType(text: string): string {
+  if (/lernziel|learning\s*objective|kompetenz|studierenden\s+können/i.test(text)) return "lernziel";
+  if (/leistungsnachweis|usln|prüfung|abgabe|frist|termin|organisatorisch|merkblatt|hilfsmittel/i.test(text))
+    return "organizational";
+  if (/übung|aufgabe|fall\s*\d|fallbearbeitung|frage|lösen|besprechung/i.test(text)) return "exercise";
+  if (/lektüre|pflichtlektüre|lesen|kapitel|literatur|buch|seite\s*\d/i.test(text)) return "reading";
+  if (/vorbereitung|vor\s+der\s+vorlesung|selbststudium|auftrag/i.test(text)) return "prep";
+  if (/zusammenfassung|überblick|repetitorium|fazit/i.test(text)) return "summary";
+  return "general";
+}
+
+async function resolveMoodleToken(supabase: any, user_id: string, providedToken?: string): Promise<string | null> {
+  if (providedToken && providedToken.trim().length > 5) {
+    return providedToken.trim();
+  }
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("moodle_token")
+    .eq("user_id", user_id)
+    .maybeSingle();
+  if (profile?.moodle_token) {
+    return profile.moodle_token;
+  }
+  // Fallback: extract token from existing synced file_url in `files`
+  const { data: sampleFile } = await supabase
+    .from("files")
+    .select("file_url")
+    .eq("user_id", user_id)
+    .not("file_url", "is", null)
+    .limit(1)
+    .maybeSingle();
+  if (sampleFile?.file_url) {
+    const m = sampleFile.file_url.match(/[?&]token=([a-f0-9]{16,64})/i);
+    if (m) return m[1];
+  }
+  return null;
+}
+
 async function syncSingleCourse(
   supabase: any,
   user_id: string,
   moodle_base_url: string,
   moodle_token: string,
   moodle_course_id: number,
-  courseDbId: string | null
+  courseDbId: string | null,
+  courseDisplayName = "Kurs"
 ) {
   let totalFiles = 0;
   let totalNotes = 0;
   let totalDeadlines = 0;
+  const cleanCourse = courseDisplayName.replace(/\s*\(\d{4}-(FS|HS)\)/i, "");
 
   try {
     const contents = await moodleApi(moodle_base_url, moodle_token, "core_course_get_contents", {
@@ -194,10 +128,9 @@ async function syncSingleCourse(
     });
 
     for (const section of contents) {
-      // Notes & inline deadlines from section descriptions (Lernziele / Vorbereitung / USLN hints)
       if (section.summary && section.summary.trim().length > 15) {
         const plainText = section.summary.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
-        const isLernziel = /lernziel|learning\s*objective|kompetenz/i.test(plainText);
+        const noteType = classifyNoteType(`${section.name || ""} ${plainText}`);
         const { data: exists } = await supabase
           .from("notes")
           .select("id")
@@ -208,18 +141,23 @@ async function syncSingleCourse(
 
         if (!exists && plainText.length > 20) {
           await supabase.from("notes").insert({
-            user_id: user_id,
+            user_id,
             course_id: courseDbId,
             title: section.name || "Section",
             content: plainText,
-            note_type: isLernziel ? "lernziel" : "general",
+            note_type: noteType,
             source: "moodle",
           });
           totalNotes++;
         }
 
-        // Scan section summary for embedded deadlines/USLNs
-        const inlineDates = extractInlineDeadlines(plainText, section.name || "Kursabschnitt");
+        const inlineDates = extractDeadlinesFromText(
+          plainText,
+          `${cleanCourse} — ${section.name || "Abschnitt"}`,
+          courseDbId,
+          "moodle_text",
+          true
+        );
         for (const d of inlineDates) {
           const { data: dlExists } = await supabase
             .from("deadlines")
@@ -242,7 +180,7 @@ async function syncSingleCourse(
       }
 
       for (const mod of section.modules || []) {
-        // 1. Check Moodle 4.x module dates array (catches Quizzes, Workshops, Forums, Choice, Assignments)
+        // 1. Check Moodle 4.x module dates array
         if (Array.isArray(mod.dates)) {
           for (const dtObj of mod.dates) {
             const label = (dtObj.label || "").toLowerCase();
@@ -296,24 +234,26 @@ async function syncSingleCourse(
             .maybeSingle();
 
           if (!exists) {
-            const isExercise = /aufgabe|übung|exercise|fragen|beantworten|fall/i.test(modDesc);
-            const isLernziel = /lernziel|kompetenz|learning\s*objective/i.test(modDesc);
-            const isReading = /lektüre|lesen|read|kapitel|chapter|textbuch/i.test(modDesc);
             await supabase.from("notes").insert({
-              user_id: user_id,
+              user_id,
               course_id: courseDbId,
               title: modTitle,
               content: modDesc,
-              note_type: isLernziel ? "lernziel" : isExercise ? "exercise" : isReading ? "reading" : "general",
+              note_type: classifyNoteType(`${modTitle} ${modDesc}`),
               source: "moodle",
             });
             totalNotes++;
           }
         }
 
-        // Scan module name + description for inline deadlines (e.g. "USLN am 14.05.2026")
         const combinedModText = `${mod.name || ""}. ${modDesc}`;
-        const modInlineDates = extractInlineDeadlines(combinedModText, mod.name || section.name || "Modul");
+        const modInlineDates = extractDeadlinesFromText(
+          combinedModText,
+          `${cleanCourse} — ${mod.name || section.name || "Modul"}`,
+          courseDbId,
+          "moodle_text",
+          true
+        );
         for (const d of modInlineDates) {
           const { data: dlExists } = await supabase
             .from("deadlines")
@@ -334,7 +274,7 @@ async function syncSingleCourse(
           }
         }
 
-        // 3. Files from modules
+        // 3. Files from modules (+ automatic zlib PDF extraction for USLN/Merkblatt/Syllabus PDFs)
         const allFiles: any[] = [];
         if (Array.isArray(mod.contents)) {
           for (const f of mod.contents) {
@@ -352,26 +292,106 @@ async function syncSingleCourse(
           const fname = file.filename || file.name;
           if (!fname || fname === ".") continue;
 
-          const { data: exists } = await supabase
+          const furl = file.fileurl || null;
+          const tokenizedUrl = furl
+            ? `${furl}${furl.includes("?") ? "&" : "?"}token=${moodle_token}`
+            : null;
+
+          const { data: existingFile } = await supabase
             .from("files")
-            .select("id")
+            .select("id, extracted_content")
             .eq("user_id", user_id)
             .eq("file_name", fname)
             .eq(courseDbId ? "course_id" : "user_id", courseDbId || user_id)
             .maybeSingle();
 
-          if (!exists) {
-            const furl = file.fileurl || null;
-            const { error: insertErr } = await supabase.from("files").insert({
-              user_id: user_id,
-              course_id: courseDbId,
-              file_name: fname,
-              file_type: file.mimetype || file.type || null,
-              file_size: file.filesize || null,
-              moodle_file_url: furl,
-              file_url: furl ? `${furl}${furl.includes("?") ? "&" : "?"}token=${moodle_token}` : null,
-            });
-            if (!insertErr) totalFiles++;
+          let fileDbId = existingFile?.id;
+          if (!existingFile) {
+            const { data: insertedFile, error: insertErr } = await supabase
+              .from("files")
+              .insert({
+                user_id,
+                course_id: courseDbId,
+                file_name: fname,
+                file_type: file.mimetype || file.type || null,
+                file_size: file.filesize || null,
+                moodle_file_url: furl,
+                file_url: tokenizedUrl,
+              })
+              .select("id")
+              .single();
+            if (!insertErr && insertedFile) {
+              fileDbId = insertedFile.id;
+              totalFiles++;
+            }
+          }
+
+          // Automatically decompress & extract deadlines from syllabus/USLN/Merkblatt PDFs
+          const needsPdfDeepScan =
+            fname.toLowerCase().endsWith(".pdf") &&
+            SYLLABUS_PDF_REGEX.test(fname) &&
+            tokenizedUrl &&
+            (!existingFile?.extracted_content?.full_text_preview);
+
+          if (needsPdfDeepScan && fileDbId) {
+            try {
+              const pdfRes = await fetch(tokenizedUrl);
+              if (pdfRes.ok) {
+                const buf = await pdfRes.arrayBuffer();
+                const pdfText = extractTextFromPdfBuffer(buf);
+                if (pdfText.length > 30) {
+                  const pdfDeadlines = extractDeadlinesFromText(
+                    pdfText,
+                    `${cleanCourse} — ${fname.replace(/\.pdf$/i, "")}`,
+                    courseDbId,
+                    "scanner_pdf",
+                    true
+                  );
+                  const { norms, cases } = extractLegalNormsAndCases(pdfText);
+
+                  await supabase
+                    .from("files")
+                    .update({
+                      extraction_status: "done",
+                      extracted_at: new Date().toISOString(),
+                      extracted_content: {
+                        summary: pdfText.slice(0, 900),
+                        full_text_preview: pdfText.slice(0, 3500),
+                        norms,
+                        cases,
+                        deadlines: pdfDeadlines,
+                      },
+                    })
+                    .eq("id", fileDbId);
+
+                  for (const pd of pdfDeadlines) {
+                    const { data: dlExists } = await supabase
+                      .from("deadlines")
+                      .select("id")
+                      .eq("user_id", user_id)
+                      .eq("course_id", courseDbId)
+                      .gte("due_date", `${pd.due_date.slice(0, 10)}T00:00:00.000Z`)
+                      .lte("due_date", `${pd.due_date.slice(0, 10)}T23:59:59.999Z`)
+                      .maybeSingle();
+
+                    if (!dlExists) {
+                      await supabase.from("deadlines").insert({
+                        user_id,
+                        course_id: courseDbId,
+                        title: pd.title,
+                        description: pd.description,
+                        due_date: pd.due_date,
+                        source: "scanner_pdf",
+                        is_completed: false,
+                      });
+                      totalDeadlines++;
+                    }
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn(`Auto PDF scan failed for ${fname}:`, e);
+            }
           }
         }
       }
@@ -394,16 +414,30 @@ export default async function handler(req: any, res: any) {
 
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-    const body = typeof req.body === "string" ? JSON.parse(req.body) : req.body || {};
+    const body =
+      req.method === "GET"
+        ? { action: "autopilot_sync" }
+        : typeof req.body === "string"
+        ? JSON.parse(req.body)
+        : req.body || {};
+
     const {
-      action,
-      moodle_token,
+      action = "autopilot_sync",
       moodle_base_url = "https://moodle.zhaw.ch",
       user_id = DEFAULT_USER_ID,
     } = body;
 
+    const moodle_token = await resolveMoodleToken(supabase, user_id, body.moodle_token);
+
     if (!moodle_token) {
       return res.status(400).json({ error: "Missing moodle_token" });
+    }
+
+    // Persist token on profile so daily background syncs always have it
+    if (body.moodle_token) {
+      await supabase
+        .from("profiles")
+        .upsert({ user_id, moodle_token }, { onConflict: "user_id" });
     }
 
     let result: unknown;
@@ -432,9 +466,8 @@ export default async function handler(req: any, res: any) {
 
       case "get_courses": {
         const siteInfo = await moodleApi(moodle_base_url, moodle_token, "core_webservice_get_site_info");
-        const userId = siteInfo.userid;
         result = await moodleApi(moodle_base_url, moodle_token, "core_enrol_get_users_courses", {
-          userid: String(userId),
+          userid: String(siteInfo.userid),
         });
         break;
       }
@@ -464,22 +497,31 @@ export default async function handler(req: any, res: any) {
         break;
       }
 
+      case "autopilot_sync":
       case "sync_all": {
-        // Background-safe server-side sync with semester filtering
-        const { semester_filter = "all", sync_files = true } = body;
         const siteInfo = await moodleApi(moodle_base_url, moodle_token, "core_webservice_get_site_info");
         const allCourses = await moodleApi(moodle_base_url, moodle_token, "core_enrol_get_users_courses", {
           userid: String(siteInfo.userid),
         });
 
-        // Filter out irrelevant meta courses
         const IGNORED_COURSES = ["modulendprüfungen bsc", "law board"];
         let courses = allCourses.filter((c: any) => {
           const name = (c.fullname || "").toLowerCase();
           return !IGNORED_COURSES.some((ignored) => name.includes(ignored));
         });
 
-        // Apply semester filter
+        // Default autopilot to newest semester (e.g. "2026-HS") unless specified
+        let semester_filter = body.semester_filter;
+        if (!semester_filter) {
+          const detectedSemesters = new Set<string>();
+          for (const c of courses) {
+            const s = extractSemester(c.fullname, c.shortname);
+            if (s !== "other") detectedSemesters.add(s);
+          }
+          const sortedSem = Array.from(detectedSemesters).sort().reverse();
+          semester_filter = sortedSem[0] || "all";
+        }
+
         if (semester_filter && semester_filter !== "all") {
           courses = courses.filter((c: any) => courseMatchesSemester(c, semester_filter));
         }
@@ -487,7 +529,7 @@ export default async function handler(req: any, res: any) {
         let totalDeadlines = 0;
         const dbCourseMap: Record<number, string> = {};
 
-        // 1. Upsert filtered courses
+        // 1. Upsert courses
         for (const course of courses) {
           const { data: existing } = await supabase
             .from("courses")
@@ -510,7 +552,7 @@ export default async function handler(req: any, res: any) {
             const { data: inserted } = await supabase
               .from("courses")
               .insert({
-                user_id: user_id,
+                user_id,
                 moodle_course_id: course.id,
                 name: course.fullname,
                 short_name: course.shortname,
@@ -544,7 +586,7 @@ export default async function handler(req: any, res: any) {
 
                 if (!exists) {
                   await supabase.from("deadlines").insert({
-                    user_id: user_id,
+                    user_id,
                     course_id: courseDbId || null,
                     title: assign.name,
                     description: assign.intro?.replace(/<[^>]*>/g, "") || null,
@@ -561,7 +603,7 @@ export default async function handler(req: any, res: any) {
           console.warn("Could not fetch assignments:", e);
         }
 
-        // 3. Deadlines from Moodle Quizzes (often used for USLNs / Online-Tests at ZHAW)
+        // 3. Deadlines from Moodle Quizzes
         try {
           const quizData = await moodleApi(moodle_base_url, moodle_token, "mod_quiz_get_quizzes_by_courses");
           for (const quiz of quizData.quizzes || []) {
@@ -596,7 +638,7 @@ export default async function handler(req: any, res: any) {
           console.warn("Could not fetch quizzes:", e);
         }
 
-        // 4. Deadlines from Moodle Calendar events (e.g. USLN, exams, project deadlines)
+        // 4. Deadlines from Moodle Calendar events
         try {
           const calData = await moodleApi(moodle_base_url, moodle_token, "core_calendar_get_calendar_events", {
             "events[timestart]": String(Math.floor(Date.now() / 1000) - 14 * 86400),
@@ -616,7 +658,7 @@ export default async function handler(req: any, res: any) {
 
               if (!exists) {
                 await supabase.from("deadlines").insert({
-                  user_id: user_id,
+                  user_id,
                   course_id: courseDbId || null,
                   title: ev.name,
                   description: ev.description?.replace(/<[^>]*>/g, "") || null,
@@ -632,9 +674,10 @@ export default async function handler(req: any, res: any) {
           console.warn("Could not fetch calendar events:", e);
         }
 
-        // 5. Server-Side Course Content, Files & Inline Text Deadlines Sync (Chunked Concurrency)
+        // 5. Server-Side Course Content, Files & Automatic PDF Decompression
         let totalFiles = 0;
         let totalNotes = 0;
+        const sync_files = body.sync_files !== false;
         if (sync_files && courses.length > 0) {
           const CHUNK_SIZE = 3;
           for (let i = 0; i < courses.length; i += CHUNK_SIZE) {
@@ -647,7 +690,8 @@ export default async function handler(req: any, res: any) {
                   moodle_base_url,
                   moodle_token,
                   c.id,
-                  dbCourseMap[c.id] || null
+                  dbCourseMap[c.id] || null,
+                  c.fullname || "Kurs"
                 )
               )
             );
@@ -663,6 +707,7 @@ export default async function handler(req: any, res: any) {
         await supabase.from("profiles").upsert(
           {
             user_id,
+            moodle_token,
             moodle_verified_at: new Date().toISOString(),
           },
           { onConflict: "user_id" }
@@ -675,13 +720,14 @@ export default async function handler(req: any, res: any) {
           total_notes: totalNotes,
           total_deadlines: totalDeadlines,
           semester: semester_filter,
-          message: `Synchronisation abgeschlossen: ${courses.length} Kurse, ${totalFiles} neue Dateien, ${totalNotes} neue Notizen, ${totalDeadlines} Termine.`,
+          synced_at: new Date().toISOString(),
+          message: `Autopilot Sync abgeschlossen (${semester_filter}): ${courses.length} Kurse, ${totalFiles} neue Dateien, ${totalDeadlines} neue Termine.`,
         };
         break;
       }
 
       case "sync_course": {
-        const { moodle_course_id, course_db_id } = body;
+        const { moodle_course_id, course_db_id, course_name } = body;
         if (!moodle_course_id) throw new Error("moodle_course_id required");
         result = await syncSingleCourse(
           supabase,
@@ -689,7 +735,8 @@ export default async function handler(req: any, res: any) {
           moodle_base_url,
           moodle_token,
           moodle_course_id,
-          course_db_id || null
+          course_db_id || null,
+          course_name || "Kurs"
         );
         break;
       }

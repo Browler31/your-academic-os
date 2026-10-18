@@ -153,6 +153,9 @@ export default function Tasks() {
 
   useEffect(() => {
     fetchAll();
+    const onSynced = () => fetchAll();
+    window.addEventListener("study-os-synced", onSynced);
+    return () => window.removeEventListener("study-os-synced", onSynced);
   }, [fetchAll]);
 
   const toggleDeadline = async (id: string, completed: boolean) => {
