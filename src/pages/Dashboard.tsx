@@ -59,6 +59,7 @@ export default function Dashboard() {
         .select("*, courses(id, name, short_name)")
         .eq("user_id", user.id)
         .eq("is_completed", false)
+        .gte("due_date", new Date(Date.now() - 2 * 86400 * 1000).toISOString())
         .order("due_date", { ascending: true })
         .limit(8),
       supabase

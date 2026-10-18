@@ -203,6 +203,7 @@ export function extractDeadlinesFromText(
       matchIndex = 0,
       totalMatchesInLine = 1
     ): string => {
+      const shortContext = defaultContext.split("—")[0].trim().slice(0, 45);
       // Special handling for table rows containing both "Publikation" and "Hochladen"
       if (
         totalMatchesInLine >= 2 &&
@@ -210,9 +211,9 @@ export function extractDeadlinesFromText(
         /hochladen|abgabe|einreichung/i.test(lineStr)
       ) {
         if (matchIndex === 0) {
-          return `📄 Publikation Aufgabenstellung: ${defaultContext} (${dateLabel})`.slice(0, 120);
+          return `📄 Publikation Fallbearbeitung (${dateLabel})`;
         } else {
-          return `🎯 USLN Abgabe / Hochladen: ${defaultContext} (${dateLabel})`.slice(0, 120);
+          return `🎯 USLN Abgabe / Hochladen (${dateLabel})`;
         }
       }
 
@@ -223,12 +224,12 @@ export function extractDeadlinesFromText(
         .replace(/\b(?:um\s+)?\d{1,2}[:.]\d{2}\s*(?:Uhr)?\.?/gi, "")
         .replace(/\b(?:bis\s+spätestens|bis\s+zum|bis|am|vom)\s*$/gi, "")
         .replace(/^\d+[)\].]\s*/, "")
-        .replace(/^[\s\-–—:•*.,]+|[\s\-–—:•*.,]+$/g, "")
+        .replace(/^[\s\-–—:•*.,()]+|[\s\-–—:•*.,()]+$/g, "")
         .replace(/\s+/g, " ")
         .trim();
 
-      if (cleaned.length < 4 || cleaned.length > 95) {
-        cleaned = defaultContext;
+      if (cleaned.length < 4 || cleaned.length > 75) {
+        cleaned = shortContext;
       }
 
       const prefix =
@@ -238,7 +239,7 @@ export function extractDeadlinesFromText(
           ? "🎓 Prüfung: "
           : "";
 
-      return `${prefix}${cleaned} (${dateLabel})`.slice(0, 120);
+      return `${prefix}${cleaned} (${dateLabel})`;
     };
 
     // 1. Numeric DD.MM.YYYY or DD.MM.YY (with optional time HH:MM, HH.MM Uhr, or (17.00 Uhr))
