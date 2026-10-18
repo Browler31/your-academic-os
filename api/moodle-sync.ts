@@ -61,9 +61,9 @@ function extractInlineDeadlines(
   const results: Array<{ title: string; description: string; due_date: string }> = [];
   const seenDates = new Set<string>();
 
-  // Split into sentences or lines for contextual matching
+  // Split into sentences or lines for contextual matching without splitting German ordinal dates ("20. Mai")
   const segments = text
-    .split(/[\n\r]+|(?<=[.!?])\s+/)
+    .split(/[\n\r]+|(?<!\b\d{1,2}\.)(?<!\bArt\.)(?<!\bAbs\.)(?<=[.!?])\s+/)
     .map((s) => s.trim())
     .filter((s) => s.length >= 8);
 

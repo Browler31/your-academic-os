@@ -59,9 +59,9 @@ function extractDeadlinesFromText(
   const seen = new Set<string>();
   const currentYear = new Date().getFullYear();
 
-  // Split into lines / sentences so each date gets its surrounding sentence as context
+  // Split into lines / sentences without splitting on German ordinal dates ("20. Mai") or abbreviations ("Art. 1")
   const lines = text
-    .split(/[\n\r]+|(?<=[.!?])\s+/)
+    .split(/[\n\r]+|(?<!\b\d{1,2}\.)(?<!\bArt\.)(?<!\bAbs\.)(?<!\bZiff\.)(?<=[.!?])\s+/)
     .map((l) => l.replace(/\s+/g, " ").trim())
     .filter((l) => l.length >= 5);
 
