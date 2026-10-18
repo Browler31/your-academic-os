@@ -62,13 +62,26 @@ export default function Notes() {
   }, [user]);
 
   const handleClassify = async () => {
+    if (!user) return;
     setClassifying(true);
     try {
-      const { data, error } = await supabase.functions.invoke("note-classifier", {
-        body: { action: "classify_notes" },
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "classify_notes",
+          user_id: user.id,
+        }),
       });
-      if (error) throw error;
-      toast.success(`${data.classified} von ${data.total_processed} Notizen klassifiziert!`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Klassifizierung fehlgeschlagen");
+      const extraMsg =
+        data.deadlines_extracted > 0
+          ? ` (+ ${data.deadlines_extracted} versteckte Fristen entdeckt!)`
+          : "";
+      toast.success(
+        `${data.classified} von ${data.total_processed} Notizen klassifiziert${extraMsg}`
+      );
       await fetchNotes();
     } catch (err: any) {
       toast.error(`Klassifizierung fehlgeschlagen: ${err.message}`);

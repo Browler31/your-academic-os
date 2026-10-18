@@ -6,16 +6,15 @@ import { Button } from "@/components/ui/button";
 
 const navItems = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/tasks", label: "Tasks", icon: ListTodo },
-  { to: "/courses", label: "Courses", icon: BookOpen },
-  { to: "/deadlines", label: "Deadlines", icon: Clock },
+  { to: "/tasks", label: "Aufgaben & Termine", icon: ListTodo },
+  { to: "/courses", label: "Kurse & Cockpit", icon: BookOpen },
   { to: "/timetable", label: "Stundenplan", icon: CalendarDays },
-  { to: "/notes", label: "Notes", icon: FileText },
-  { to: "/files", label: "Files", icon: FolderOpen },
+  { to: "/notes", label: "Notizen & Lernziele", icon: FileText },
+  { to: "/files", label: "Unterlagen & PDFs", icon: FolderOpen },
   { to: "/flashcards", label: "Flashcards", icon: CreditCard },
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/moodle-sync", label: "Moodle Sync", icon: RefreshCw },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/settings", label: "Einstellungen", icon: Settings },
 ];
 
 export function AppSidebar() {

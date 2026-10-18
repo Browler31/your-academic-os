@@ -53,16 +53,33 @@ export default function Files() {
   useEffect(() => { fetchFiles(); }, [fetchFiles]);
 
   const handleParse = async (fileId: string) => {
+    if (!user) return;
     setParsing(prev => new Set(prev).add(fileId));
     try {
-      const { data, error } = await supabase.functions.invoke("parse-pdf", {
-        body: { action: "parse", file_id: fileId },
+      const moodleToken = localStorage.getItem("study_os_moodle_token") || undefined;
+      const geminiKey = localStorage.getItem("study_os_gemini_key") || undefined;
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "parse_pdf",
+          user_id: user.id,
+          file_id: fileId,
+          moodle_token: moodleToken,
+          gemini_api_key: geminiKey,
+        }),
       });
-      if (error) throw error;
-      toast.success(`Parsed: ${data.norms_count} norms, ${data.concepts_count} concepts extracted`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Parse fehlgeschlagen");
+      toast.success(
+        `Analysiert: ${data.norms_count || 0} Normen, ${data.concepts_count || 0} Konzepte, ${
+          data.deadlines_count || 0
+        } Termine extrahiert!`
+      );
+      setExpandedFile(fileId);
       await fetchFiles();
     } catch (err: any) {
-      toast.error(`Parse failed: ${err.message}`);
+      toast.error(`Parse fehlgeschlagen: ${err.message}`);
     } finally {
       setParsing(prev => { const n = new Set(prev); n.delete(fileId); return n; });
     }

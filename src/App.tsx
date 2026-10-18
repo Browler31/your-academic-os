@@ -26,7 +26,7 @@ function AppRoutes() {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/tasks" element={<Tasks />} />
       <Route path="/courses" element={<Courses />} />
-      <Route path="/deadlines" element={<Deadlines />} />
+      <Route path="/deadlines" element={<Navigate to="/tasks" replace />} />
       <Route path="/timetable" element={<Timetable />} />
       <Route path="/notes" element={<Notes />} />
       <Route path="/files" element={<Files />} />

@@ -158,12 +158,16 @@ export default function Dashboard() {
   };
 
   const handlePlanWeek = async () => {
+    if (!user) return;
     setPlanning(true);
     try {
-      const { data, error } = await supabase.functions.invoke("study-planner", {
-        body: { action: "plan_week" },
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "plan_week", user_id: user.id }),
       });
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Planung fehlgeschlagen");
       toast.success(`${data.created} Tasks für die Woche erstellt!`);
       await fetchAll();
     } catch (err: any) {
@@ -174,12 +178,16 @@ export default function Dashboard() {
   };
 
   const handlePlanToday = async () => {
+    if (!user) return;
     setPlanningToday(true);
     try {
-      const { data, error } = await supabase.functions.invoke("study-planner", {
-        body: { action: "plan_today" },
+      const res = await fetch("/api/ai", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "plan_today", user_id: user.id }),
       });
-      if (error) throw error;
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Planung fehlgeschlagen");
       toast.success(`${data.created} Tasks für heute erstellt!`);
       await fetchAll();
     } catch (err: any) {
