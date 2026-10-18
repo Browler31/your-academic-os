@@ -113,7 +113,7 @@ export function extractTextFromPdfBuffer(buf: ArrayBuffer): string {
       if (parts.length > 0) {
         const joined = parts
           .join("")
-          .replace(/\bde-(?:DE|CH)\b/g, " ")
+          .replace(/de-(?:DE|CH)/gi, " ")
           .replace(/\s+/g, " ")
           .trim();
         if (joined.length > 10) {
@@ -134,7 +134,7 @@ export function extractTextFromPdfBuffer(buf: ArrayBuffer): string {
  * - Multi-line wrapped sentences ("per E-Mail an baes@zhaw.ch bis \r\nFr. 30. Oktober 2026 um 17.00 Uhr")
  * - Weekday abbreviations (Mo., Di., Mi., Do., Fr., Sa., So.)
  * - German written months (30. Oktober 2026) and numeric dates (04.11.2026)
- * - Times with dots or colons (17.00 Uhr or 17:00 Uhr)
+ * - Times with dots or colons and optional parentheses ((17.00 Uhr) or um 17:00 Uhr)
  */
 export function extractDeadlinesFromText(
   text: string,
@@ -149,10 +149,10 @@ export function extractDeadlinesFromText(
   const seen = new Set<string>();
   const currentYear = new Date().getFullYear();
 
-  // 1. Normalize line breaks: join soft line wraps so "bis \r\nFr. 30. Oktober" stays one sentence
+  // 1. Normalize line breaks & strip Word PDF language tags (e.g. "de-DE21.10.2026")
   const normalized = text
     .replace(/\r\n/g, "\n")
-    .replace(/\bde-(?:DE|CH)\b/g, " ")
+    .replace(/de-(?:DE|CH)/gi, " ")
     .replace(/([a-zäöü])-\s*\n\s*([a-zäöü])/gi, "$1$2")
     .replace(/(?<!\n)\n(?!\n)/g, " ");
 
@@ -241,9 +241,9 @@ export function extractDeadlinesFromText(
       return `${prefix}${cleaned} (${dateLabel})`.slice(0, 120);
     };
 
-    // 1. Numeric DD.MM.YYYY or DD.MM.YY (with optional time HH:MM or HH.MM Uhr)
+    // 1. Numeric DD.MM.YYYY or DD.MM.YY (with optional time HH:MM, HH.MM Uhr, or (17.00 Uhr))
     const numRegex =
-      /\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})(?:[\s,umUhr\-–]*(\d{1,2})[:.](\d{2})\s*(?:Uhr)?)?/gi;
+      /\b(\d{1,2})\.(\d{1,2})\.(\d{2,4})(?:[\s,umUhr\-–(]*(\d{1,2})[:.](\d{2})\s*(?:Uhr)?\)?)?/gi;
     const numMatches = Array.from(line.matchAll(numRegex));
     numMatches.forEach((m, idx) => {
       const day = parseInt(m[1], 10);
@@ -278,7 +278,7 @@ export function extractDeadlinesFromText(
 
     // 2. Written German month: e.g. "Fr. 30. Oktober 2026 um 17.00 Uhr" or "2. Oktober 2026"
     const wordRegex = new RegExp(
-      `\\b(\\d{1,2})\\.\\s*(${monthNamesPattern})\\.?\\s*(\\d{4})?(?:[\\s,umUhr\\-–]*(\\d{1,2})[:.](\\d{2})\\s*(?:Uhr)?)?`,
+      `\\b(\\d{1,2})\\.\\s*(${monthNamesPattern})\\.?\\s*(\\d{4})?(?:[\\s,umUhr\\-–(]*(\\d{1,2})[:.](\\d{2})\\s*(?:Uhr)?\\)?)?`,
       "gi"
     );
     const wordMatches = Array.from(line.matchAll(wordRegex));
@@ -502,8 +502,18 @@ ${text.slice(0, 12000)}`,
           const syllabusRegex =
             /(leistungsnachweis|usln|fallbearbeitung|merkblatt|modulübersicht|modulbeschreibung|semesterprogramm|semesterwochenprogramm|programm|zeitplan|termin|leitfaden|syllabus|übersicht|info|organisation|einführung)/i;
 
+          // Prioritize newest semester (e.g. 2026-HS) and explicit USLN/Merkblatt files first
+          const sortedFiles = [...(files || [])].sort((a: any, b: any) => {
+            const aIsCurrent = /2026-HS/i.test(a.courses?.name || "") ? 1 : 0;
+            const bIsCurrent = /2026-HS/i.test(b.courses?.name || "") ? 1 : 0;
+            if (aIsCurrent !== bIsCurrent) return bIsCurrent - aIsCurrent;
+            const aIsUsln = /leistungsnachweis|usln|fallbearbeitung|merkblatt/i.test(a.file_name || "") ? 1 : 0;
+            const bIsUsln = /leistungsnachweis|usln|fallbearbeitung|merkblatt/i.test(b.file_name || "") ? 1 : 0;
+            return bIsUsln - aIsUsln;
+          });
+
           let pdfFetchCount = 0;
-          for (const f of files || []) {
+          for (const f of sortedFiles) {
             scannedFiles++;
             const courseLabel = f.courses?.name
               ? f.courses.name.replace(/\s*\(\d{4}-(FS|HS)\)/i, "")
