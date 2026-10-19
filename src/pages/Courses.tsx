@@ -28,11 +28,23 @@ import {
   ListChecks,
   GraduationCap,
   FileCheck2,
+  Download,
+  Copy,
+  Terminal,
+  Layers,
 } from "lucide-react";
 import { format } from "date-fns";
 import { de } from "date-fns/locale";
 import { parseSemester, cleanCourseName, groupBy } from "@/lib/semester";
 import { structureCourseFiles, CourseChapter, ClassifiedFile } from "@/lib/courseStructure";
+import {
+  MergeFilterOptions,
+  MergeProgress,
+  collectFilesForExport,
+  mergeCoursePdfsToBytes,
+  triggerPdfDownload,
+  buildNlmCliCommand,
+} from "@/lib/notebooklmExport";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -66,6 +78,19 @@ export default function Courses() {
   const [gutachtenInput, setGutachtenInput] = useState<string>("");
   const [gutachtenResult, setGutachtenResult] = useState<any | null>(null);
   const [evaluatingGutachten, setEvaluatingGutachten] = useState(false);
+
+  // NotebookLM & PDF Merger State
+  const [showNotebookLmPanel, setShowNotebookLmPanel] = useState(false);
+  const [mergeFilter, setMergeFilter] = useState<MergeFilterOptions>({
+    includeLectures: true,
+    includeFactsheets: true,
+    includeExercises: true,
+    includeSolutions: true,
+    includeCompass: true,
+    includeReference: false,
+  });
+  const [mergingPdfs, setMergingPdfs] = useState(false);
+  const [mergeProgress, setMergeProgress] = useState<MergeProgress | null>(null);
 
   const fetchAllCourseData = useCallback(async () => {
     if (!user) return;
@@ -313,6 +338,121 @@ export default function Courses() {
     const definitions: any[] = activeDeepNotes?.memorize_definitions || [];
     const activeDef = definitions[selectedDefIdx] || definitions[0] || null;
 
+    const exportableFiles = collectFilesForExport(structuredCourse, mergeFilter);
+    const fullNotebookCourseName = `${selectedCourse.cleanName} (${selectedCourse.semesterInfo?.semester || "2026-HS"})`;
+
+    const handleDownloadCombinedPdf = async () => {
+      if (exportableFiles.length === 0) {
+        toast.error("Keine PDFs für die gewählten Kategorien gefunden.");
+        return;
+      }
+      setMergingPdfs(true);
+      try {
+        const { bytes, mergedCount } = await mergeCoursePdfsToBytes(
+          selectedCourse.cleanName,
+          selectedCourse.semesterInfo?.label || selectedCourse.semesterInfo?.semester || "2026-HS",
+          exportableFiles,
+          {
+            definitions,
+            pruefungsschemaTitle: activeDeepNotes?.pruefungsschema?.title,
+            pruefungsschemaSteps: activeDeepNotes?.pruefungsschema?.steps,
+          },
+          (p) => setMergeProgress(p)
+        );
+        const filename = `${fullNotebookCourseName} - Vorlesungen & Uebungen Komplett.pdf`.replace(
+          /[/\\?%*:|"<>]/g,
+          "-"
+        );
+        triggerPdfDownload(bytes, filename);
+        toast.success(
+          `Sammel-PDF erstellt (${mergedCount} PDFs kombiniert)! Du kannst es jetzt direkt in NotebookLM hochladen.`
+        );
+      } catch (e: any) {
+        toast.error(`PDF-Kombination fehlgeschlagen: ${e.message}`);
+      } finally {
+        setMergingPdfs(false);
+        setMergeProgress(null);
+      }
+    };
+
+    const handleDownloadSplitByRolePdfs = async () => {
+      const groups = [
+        {
+          suffix: "1_Vorlesungen_und_Theorie",
+          opts: {
+            includeLectures: true,
+            includeFactsheets: true,
+            includeCompass: true,
+            includeExercises: false,
+            includeSolutions: false,
+            includeReference: false,
+          },
+        },
+        {
+          suffix: "2_Uebungsfaelle_und_Sachverhalte",
+          opts: {
+            includeLectures: false,
+            includeFactsheets: false,
+            includeCompass: false,
+            includeExercises: true,
+            includeSolutions: false,
+            includeReference: false,
+          },
+        },
+        {
+          suffix: "3_Offizielle_ZHAW_Loesungsskizzen",
+          opts: {
+            includeLectures: false,
+            includeFactsheets: false,
+            includeCompass: false,
+            includeExercises: false,
+            includeSolutions: true,
+            includeReference: false,
+          },
+        },
+      ];
+
+      setMergingPdfs(true);
+      let downloadedGroups = 0;
+      try {
+        for (const g of groups) {
+          const gFiles = collectFilesForExport(structuredCourse, g.opts);
+          if (gFiles.length === 0) continue;
+          const { bytes, mergedCount } = await mergeCoursePdfsToBytes(
+            `${selectedCourse.cleanName} — ${g.suffix.replace(/_/g, " ")}`,
+            selectedCourse.semesterInfo?.semester || "2026-HS",
+            gFiles,
+            g.suffix.startsWith("1_") ? { definitions } : undefined,
+            (p) => setMergeProgress(p)
+          );
+          if (mergedCount > 0) {
+            const fname = `${fullNotebookCourseName} - ${g.suffix}.pdf`.replace(
+              /[/\\?%*:|"<>]/g,
+              "-"
+            );
+            triggerPdfDownload(bytes, fname);
+            downloadedGroups++;
+          }
+        }
+        toast.success(
+          `${downloadedGroups} getrennte Sammel-PDFs (Vorlesungen, Übungen, Lösungsskizzen) für NotebookLM heruntergeladen!`
+        );
+      } catch (e: any) {
+        toast.error(`Fehler beim Erstellen der Sammel-PDFs: ${e.message}`);
+      } finally {
+        setMergingPdfs(false);
+        setMergeProgress(null);
+      }
+    };
+
+    const handleCopyNlmCli = () => {
+      const cmd = buildNlmCliCommand(fullNotebookCourseName, exportableFiles, definitions);
+      navigator.clipboard.writeText(cmd);
+      toast.success(
+        `Befehl kopiert! Füge ihn ins Terminal ein – er erstellt den Kurs «${fullNotebookCourseName}» in NotebookLM und lädt die kombinierten PDFs automatisch hoch.`
+      );
+    };
+
     return (
       <DashboardLayout>
         <div className="animate-fade-in space-y-6">
@@ -340,21 +480,197 @@ export default function Courses() {
               </div>
             </div>
 
-            {selectedCourse.moodle_course_id && (
+            <div className="flex flex-wrap items-center gap-2">
               <Button
-                variant="outline"
                 size="sm"
-                onClick={() =>
-                  window.open(
-                    `https://moodle.zhaw.ch/course/view.php?id=${selectedCourse.moodle_course_id}`,
-                    "_blank"
-                  )
-                }
+                variant={showNotebookLmPanel ? "default" : "secondary"}
+                className="gap-1.5"
+                onClick={() => setShowNotebookLmPanel((v) => !v)}
               >
-                <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> In ZHAW Moodle öffnen
+                <Layers className="h-4 w-4" />
+                PDFs kombinieren & NotebookLM Export
               </Button>
-            )}
+              {selectedCourse.moodle_course_id && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    window.open(
+                      `https://moodle.zhaw.ch/course/view.php?id=${selectedCourse.moodle_course_id}`,
+                      "_blank"
+                    )
+                  }
+                >
+                  <ExternalLink className="mr-1.5 h-3.5 w-3.5" /> In ZHAW Moodle öffnen
+                </Button>
+              )}
+            </div>
           </div>
+
+          {/* NOTEBOOKLM & SAMMEL-PDF EXPORT PANEL */}
+          {showNotebookLmPanel && (
+            <Card className="border-primary/40 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Layers className="h-5 w-5 text-primary" />
+                      Alle Kurs-PDFs kombinieren & nach Google NotebookLM exportieren
+                    </CardTitle>
+                    <CardDescription className="text-xs mt-0.5">
+                      Kombiniert alle Vorlesungen, Übungsfälle & Lösungsskizzen (SW 1–14) inkl. Inhaltsverzeichnis & Auswendig-Definitionen in Sammel-PDFs oder erstellt den gleichnamigen Kurs <span className="font-mono font-semibold text-foreground">«{fullNotebookCourseName}»</span> direkt via <span className="font-mono">gemini-notebook-mcp-cli (nlm)</span>.
+                    </CardDescription>
+                  </div>
+                  <Badge variant="outline" className="font-mono text-xs shrink-0">
+                    {exportableFiles.length} PDFs ausgewählt
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Filter Checkboxes */}
+                <div className="flex flex-wrap gap-4 rounded-lg border bg-background/80 p-3 text-xs">
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <Checkbox
+                      checked={mergeFilter.includeLectures}
+                      onCheckedChange={(v) =>
+                        setMergeFilter((p) => ({ ...p, includeLectures: !!v }))
+                      }
+                    />
+                    📘 Vorlesungsfolien & Theorie
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <Checkbox
+                      checked={mergeFilter.includeExercises}
+                      onCheckedChange={(v) =>
+                        setMergeFilter((p) => ({ ...p, includeExercises: !!v }))
+                      }
+                    />
+                    📙 Übungsfälle & Fallskripte
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <Checkbox
+                      checked={mergeFilter.includeSolutions}
+                      onCheckedChange={(v) =>
+                        setMergeFilter((p) => ({ ...p, includeSolutions: !!v }))
+                      }
+                    />
+                    📗 Offizielle ZHAW-Lösungsskizzen
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <Checkbox
+                      checked={mergeFilter.includeFactsheets}
+                      onCheckedChange={(v) =>
+                        setMergeFilter((p) => ({ ...p, includeFactsheets: !!v }))
+                      }
+                    />
+                    📄 Factsheets & Repetition
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <Checkbox
+                      checked={mergeFilter.includeCompass}
+                      onCheckedChange={(v) =>
+                        setMergeFilter((p) => ({ ...p, includeCompass: !!v }))
+                      }
+                    />
+                    📌 Modul-Kompass & Alte MEPs
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium">
+                    <Checkbox
+                      checked={mergeFilter.includeReference}
+                      onCheckedChange={(v) =>
+                        setMergeFilter((p) => ({ ...p, includeReference: !!v }))
+                      }
+                    />
+                    📚 Allgemeine Skripte & Gesetze
+                  </label>
+                </div>
+
+                {mergingPdfs && mergeProgress && (
+                  <div className="rounded-lg border border-primary/30 bg-background p-3 text-xs flex items-center gap-3">
+                    <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold">
+                        Kombiniere PDF {mergeProgress.current} von {mergeProgress.total}...
+                      </p>
+                      <p className="text-muted-foreground truncate">{mergeProgress.fileName}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {/* Option 1: Direct Browser Sammel-PDF Download */}
+                  <div className="rounded-xl border bg-card p-3.5 space-y-2.5">
+                    <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                      Option A · Manuell als Sammel-PDF für NotebookLM
+                    </p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Fügt alle {exportableFiles.length} PDFs chronologisch (SW 1–14) mit Deckblättern & Auswendig-Definitionen zu einer einzigen PDF zusammen.
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        onClick={handleDownloadCombinedPdf}
+                        disabled={mergingPdfs || exportableFiles.length === 0}
+                        className="gap-1.5 text-xs"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        1 Komplett-PDF herunterladen ({exportableFiles.length} PDFs)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={handleDownloadSplitByRolePdfs}
+                        disabled={mergingPdfs}
+                        className="gap-1.5 text-xs"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Als 3 PDFs (1. Vorlesung, 2. Übung, 3. Lösung)
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="gap-1 text-xs"
+                        onClick={() => {
+                          navigator.clipboard.writeText(fullNotebookCourseName);
+                          toast.success(`Kursname «${fullNotebookCourseName}» kopiert!`);
+                          window.open("https://notebooklm.google.com/", "_blank");
+                        }}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" /> NotebookLM öffnen
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* Option 2: Automated via jacob-bd/gemini-notebook-mcp-cli (nlm) */}
+                  <div className="rounded-xl border bg-card p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
+                        <Terminal className="h-3.5 w-3.5" />
+                        Option B · Vollautomatisch via gemini-notebook-mcp-cli (nlm)
+                      </p>
+                      <Badge variant="secondary" className="text-[10px] font-mono">
+                        nlm v0.15.6 installiert
+                      </Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Erstellt automatisch ein Notebook namens <span className="font-semibold text-foreground">«{fullNotebookCourseName}»</span> in deinem Google NotebookLM, kombiniert Vorlesungen, Übungen & Lösungsskizzen und lädt sie per <span className="font-mono">nlm source add</span> hoch.
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        variant="default"
+                        onClick={handleCopyNlmCli}
+                        className="gap-1.5 text-xs"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Auto-Sync Befehl für «{selectedCourse.cleanName}» kopieren
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* 1. MODUL-KOMPASS: USLN-FRISTEN & WICHTIGE MODUL-DOKUMENTE */}
           <div className="grid gap-5 lg:grid-cols-2">
@@ -1371,6 +1687,22 @@ export default function Courses() {
                         <FolderOpen className="h-3 w-3" />
                         {cFiles.length} PDFs
                       </Badge>
+                    </div>
+
+                    <div className="pt-2 border-t flex items-center justify-between gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs gap-1.5 text-primary hover:text-primary"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowNotebookLmPanel(true);
+                          handleOpenCourse(course);
+                        }}
+                      >
+                        <Layers className="h-3.5 w-3.5" />
+                        PDFs kombinieren & NotebookLM Export
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>
