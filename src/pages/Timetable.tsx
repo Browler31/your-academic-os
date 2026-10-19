@@ -1,21 +1,29 @@
 import { useEffect, useState, useMemo } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { ChevronLeft, ChevronRight, RefreshCw, Loader2, Calendar, MapPin, User, Clock, BookOpen } from "lucide-react";
-import { format, startOfWeek, addDays, addWeeks, subWeeks, isSameDay } from "date-fns";
-import { de } from "date-fns/locale";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import {
+  ChevronLeft,
+  ChevronRight,
+  RefreshCw,
+  MapPin,
+  User,
+  Clock,
+  Loader2,
+  CalendarCheck,
+  Info,
+} from "lucide-react";
+import { format, startOfWeek, addDays, addWeeks, subWeeks, isToday } from "date-fns";
+import { de } from "date-fns/locale";
 
 interface TimetableEntry {
   id: string;
   subject_name: string;
-  subject_short: string;
+  subject_short: string | null;
   teacher_name: string | null;
   room_name: string | null;
   day_of_week: number;
@@ -25,51 +33,65 @@ interface TimetableEntry {
   course_id: string | null;
 }
 
-const HOURS = Array.from({ length: 12 }, (_, i) => i + 7);
-const DAYS = ["Mo", "Di", "Mi", "Do", "Fr"];
+const DAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr"];
+const DAY_FULL = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag"];
 
-const SUBJECT_COLORS: Record<string, string> = {};
-const COLOR_PALETTE = [
-  "bg-primary/15 border-primary/30 text-primary",
-  "bg-accent/15 border-accent/30 text-accent",
-  "bg-warning/15 border-warning/30 text-warning",
-  "bg-destructive/15 border-destructive/30 text-destructive",
-  "bg-success/15 border-success/30 text-success",
-  "bg-primary/20 border-primary/40 text-primary",
-  "bg-accent/20 border-accent/40 text-accent",
+const ZHAW_LAW_CLASSES = [
+  { label: "RE25a (Vollzeit a · W.BA.RE.25HS.VZa)", value: "W.BA.RE.25HS.VZa", id: 17213 },
+  { label: "RE25b (Vollzeit b · W.BA.RE.25HS.VZb)", value: "W.BA.RE.25HS.VZb", id: 17216 },
+  { label: "RE25TZa (Teilzeit a · W.BA.RE.25HS.TZa)", value: "W.BA.RE.25HS.TZa", id: 17222 },
+  { label: "RE25TZb (Teilzeit b · W.BA.RE.25HS.TZb)", value: "W.BA.RE.25HS.TZb", id: 17225 },
+  { label: "RE24a (Vollzeit a · W.BA.RE.24HS.VZa)", value: "W.BA.RE.24HS.VZa", id: 17198 },
+  { label: "WR25a (Wirtschaftsrecht VZa)", value: "W.BA.WR.25HS.VZa", id: 17324 },
 ];
 
-function getSubjectColor(subjectShort: string): string {
-  if (!SUBJECT_COLORS[subjectShort]) {
-    const idx = Object.keys(SUBJECT_COLORS).length % COLOR_PALETTE.length;
-    SUBJECT_COLORS[subjectShort] = COLOR_PALETTE[idx];
+const SUBJECT_COLORS: Record<string, string> = {
+  default: "bg-primary/15 border-primary/30 text-foreground",
+};
+
+const PALETTE = [
+  "bg-sky-500/15 border-sky-500/40 text-sky-950 dark:text-sky-100",
+  "bg-amber-500/15 border-amber-500/40 text-amber-950 dark:text-amber-100",
+  "bg-emerald-500/15 border-emerald-500/40 text-emerald-950 dark:text-emerald-100",
+  "bg-violet-500/15 border-violet-500/40 text-violet-950 dark:text-violet-100",
+  "bg-rose-500/15 border-rose-500/40 text-rose-950 dark:text-rose-100",
+  "bg-cyan-500/15 border-cyan-500/40 text-cyan-950 dark:text-cyan-100",
+  "bg-orange-500/15 border-orange-500/40 text-orange-950 dark:text-orange-100",
+  "bg-indigo-500/15 border-indigo-500/40 text-indigo-950 dark:text-indigo-100",
+];
+
+function getSubjectColor(short: string | null, colorMap: Map<string, string>): string {
+  const key = short || "unknown";
+  if (!colorMap.has(key)) {
+    colorMap.set(key, PALETTE[colorMap.size % PALETTE.length]);
   }
-  return SUBJECT_COLORS[subjectShort];
+  return colorMap.get(key) || SUBJECT_COLORS.default;
 }
 
-function timeToMinutes(time: string): number {
-  const [h, m] = time.split(":").map(Number);
+function formatTimeShort(t: string): string {
+  return t.slice(0, 5);
+}
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
-}
-
-function formatTime(time: string): string {
-  return time?.slice(0, 5) || "";
 }
 
 export default function Timetable() {
   const { user } = useAuth();
+  const [currentDate, setCurrentDate] = useState(() => new Date());
   const [entries, setEntries] = useState<TimetableEntry[]>([]);
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [syncing, setSyncing] = useState(false);
+  const [latestAvailableDate, setLatestAvailableDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [selectedEntry, setSelectedEntry] = useState<TimetableEntry | null>(null);
-
-  const weekStart = useMemo(
-    () => startOfWeek(currentDate, { weekStartsOn: 1 }),
-    [currentDate]
+  const [syncing, setSyncing] = useState(false);
+  const [selectedClass, setSelectedClass] = useState<string>(
+    () => localStorage.getItem("zhaw_webuntis_class") || "W.BA.RE.25HS.VZa"
   );
+  const [weekLockedOnWebUntis, setWeekLockedOnWebUntis] = useState(false);
 
-  const weekDates = useMemo(
+  const colorMap = useMemo(() => new Map<string, string>(), []);
+  const weekStart = useMemo(() => startOfWeek(currentDate, { weekStartsOn: 1 }), [currentDate]);
+  const weekDays = useMemo(
     () => Array.from({ length: 5 }, (_, i) => addDays(weekStart, i)),
     [weekStart]
   );
@@ -77,18 +99,31 @@ export default function Timetable() {
   const fetchEntries = async () => {
     if (!user) return;
     setLoading(true);
-    const from = format(weekDates[0], "yyyy-MM-dd");
-    const to = format(weekDates[4], "yyyy-MM-dd");
+    const from = format(weekDays[0], "yyyy-MM-dd");
+    const to = format(weekDays[4], "yyyy-MM-dd");
 
-    const { data, error } = await supabase
-      .from("timetable_entries")
-      .select("*")
-      .eq("user_id", user.id)
-      .gte("date", from)
-      .lte("date", to)
-      .order("start_time");
+    const [weekRes, latestRes] = await Promise.all([
+      supabase
+        .from("timetable_entries")
+        .select("*")
+        .eq("user_id", user.id)
+        .gte("date", from)
+        .lte("date", to)
+        .order("start_time"),
+      supabase
+        .from("timetable_entries")
+        .select("date")
+        .eq("user_id", user.id)
+        .order("date", { ascending: false })
+        .limit(1),
+    ]);
 
-    if (!error && data) setEntries(data as TimetableEntry[]);
+    if (!weekRes.error && weekRes.data) {
+      setEntries(weekRes.data as TimetableEntry[]);
+    }
+    if (latestRes.data?.[0]?.date) {
+      setLatestAvailableDate(latestRes.data[0].date);
+    }
     setLoading(false);
   };
 
@@ -96,38 +131,82 @@ export default function Timetable() {
     fetchEntries();
   }, [user, weekStart]);
 
-  const handleSync = async () => {
+  const handleSyncWeek = async (targetDateStr?: string) => {
     setSyncing(true);
     try {
-      let data: any = null;
-      try {
-        const res = await fetch("/api/webuntis-sync", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "sync_semester", user_id: user?.id || "59255661-ce8b-476c-8e00-408b55843c58" }),
-        });
-        if (res.ok) {
-          data = await res.json();
-        }
-      } catch (apiErr) {
-        console.warn("Direct /api/webuntis-sync call failed, trying supabase function fallback:", apiErr);
-      }
+      const classObj =
+        ZHAW_LAW_CLASSES.find((c) => c.value === selectedClass) || ZHAW_LAW_CLASSES[0];
+      const dateStr = targetDateStr || format(weekStart, "yyyy-MM-dd");
 
-      if (!data) {
-        const { data: edgeData, error } = await supabase.functions.invoke("webuntis-sync", {
-          body: { action: "sync_semester" },
-        });
-        if (error) throw error;
-        data = edgeData;
-      }
+      const res = await fetch("/api/webuntis-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "fetch_week",
+          date: dateStr,
+          class_name: classObj.value,
+          entity_id: classObj.id,
+          user_id: user?.id || "59255661-ce8b-476c-8e00-408b55843c58",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "WebUntis Fehler");
 
-      toast.success(`${data.inserted ?? data.total_synced ?? "Stundenplan"} Einträge synchronisiert!`);
+      setWeekLockedOnWebUntis(!!data.locked);
+      if (data.locked) {
+        toast.info(
+          "Diese Woche ist auf ZHAW WebUntis noch nicht öffentlich freigeschaltet. Synchronisiere alle verfügbaren Semesterwochen..."
+        );
+        await handleSyncSemester();
+      } else {
+        toast.success(`${data.inserted ?? 0} Lektionen für diese Woche synchronisiert!`);
+        await fetchEntries();
+      }
+    } catch (err: any) {
+      toast.error(`Stundenplan-Sync fehlgeschlagen: ${err.message}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleSyncSemester = async () => {
+    setSyncing(true);
+    try {
+      const classObj =
+        ZHAW_LAW_CLASSES.find((c) => c.value === selectedClass) || ZHAW_LAW_CLASSES[0];
+      const res = await fetch("/api/webuntis-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "sync_semester",
+          date: format(weekStart, "yyyy-MM-dd"),
+          class_name: classObj.value,
+          entity_id: classObj.id,
+          user_id: user?.id || "59255661-ce8b-476c-8e00-408b55843c58",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "WebUntis Sync Fehler");
+
+      toast.success(
+        `${data.inserted ?? 0} Vorlesungsblöcke aus ${data.unlocked_weeks ?? 0} freigeschalteten ZHAW-Wochen synchronisiert!`
+      );
       await fetchEntries();
+
+      // If current week has no entries and we know a latest available date, offer or jump
+      if (entries.length === 0 && data.latest_date) {
+        setLatestAvailableDate(data.latest_date);
+      }
     } catch (err: any) {
       toast.error(`Sync fehlgeschlagen: ${err.message}`);
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleClassChange = (val: string) => {
+    setSelectedClass(val);
+    localStorage.setItem("zhaw_webuntis_class", val);
   };
 
   const entriesByDay = useMemo(() => {
@@ -144,221 +223,308 @@ export default function Timetable() {
 
   return (
     <DashboardLayout>
-      <div className="animate-fade-in">
-        <div className="flex items-center justify-between">
+      <div className="animate-fade-in space-y-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Stundenplan</h1>
-            <p className="mt-1 text-muted-foreground">Dein Wochenplan von WebUntis.</p>
+            <h1 className="text-3xl font-bold tracking-tight">Stundenplan (ZHAW WebUntis)</h1>
+            <p className="mt-1 text-muted-foreground">
+              Direkte Kopplung mit <span className="font-mono text-xs">zhaw-sml-l.webuntis.com</span> · Automatische Doppellektionen-Zusammenführung.
+            </p>
           </div>
-          <Button onClick={handleSync} disabled={syncing}>
-            {syncing ? (
-              <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Syncing...</>
-            ) : (
-              <><RefreshCw className="mr-2 h-4 w-4" /> Semester synchen</>
-            )}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedClass}
+              onChange={(e) => handleClassChange(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 text-xs font-medium shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              {ZHAW_LAW_CLASSES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <Button variant="outline" size="sm" onClick={() => handleSyncWeek()} disabled={syncing}>
+              {syncing ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+              )}
+              Woche synchen
+            </Button>
+            <Button size="sm" onClick={handleSyncSemester} disabled={syncing}>
+              {syncing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Synchronisiere...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" /> Ganzes Semester synchen
+                </>
+              )}
+            </Button>
+          </div>
         </div>
 
-        {/* Week navigation */}
-        <div className="mt-6 flex items-center gap-3">
-          <Button variant="outline" size="icon" onClick={() => setCurrentDate(subWeeks(currentDate, 1))}>
-            <ChevronLeft className="h-4 w-4" />
-          </Button>
-          <Button variant="outline" onClick={() => setCurrentDate(new Date())}>
-            Heute
-          </Button>
-          <Button variant="outline" size="icon" onClick={() => setCurrentDate(addWeeks(currentDate, 1))}>
-            <ChevronRight className="h-4 w-4" />
-          </Button>
+        {/* Week Navigation */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setCurrentDate((d) => subWeeks(d, 1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setCurrentDate(new Date())}>
+              Heute
+            </Button>
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => setCurrentDate((d) => addWeeks(d, 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+            {latestAvailableDate && entries.length === 0 && (
+              <Button
+                variant="secondary"
+                size="sm"
+                className="gap-1.5 text-xs"
+                onClick={() => setCurrentDate(new Date(latestAvailableDate + "T12:00:00"))}
+              >
+                <CalendarCheck className="h-3.5 w-3.5 text-primary" />
+                Zur letzten freigeschalteten Vorlesungswoche ({format(new Date(latestAvailableDate + "T12:00:00"), "dd.MM.yyyy")})
+              </Button>
+            )}
+          </div>
           <span className="text-sm font-medium text-muted-foreground">
-            {format(weekDates[0], "d. MMM", { locale: de })} – {format(weekDates[4], "d. MMM yyyy", { locale: de })}
+            {format(weekDays[0], "d. MMMM", { locale: de })} –{" "}
+            {format(weekDays[4], "d. MMMM yyyy", { locale: de })}
           </span>
         </div>
 
-        {/* Calendar grid */}
-        <Card className="mt-4 overflow-hidden">
-          <CardContent className="p-0">
-            <div className="grid grid-cols-[60px_repeat(5,1fr)]">
-              {/* Header row */}
-              <div className="border-b border-r bg-muted/30 p-2" />
-              {weekDates.map((d, i) => (
-                <div
-                  key={i}
-                  className={cn(
-                    "border-b border-r p-2 text-center",
-                    isSameDay(d, new Date()) && "bg-primary/5"
-                  )}
-                >
-                  <div className="text-xs font-medium text-muted-foreground">{DAYS[i]}</div>
-                  <div className={cn(
-                    "text-sm font-bold",
-                    isSameDay(d, new Date()) && "text-primary"
-                  )}>
-                    {format(d, "d")}
-                  </div>
+        {/* Helpful Info Banner if current week has no WebUntis entries */}
+        {!loading && entries.length === 0 && (
+          <Card className="p-5 border-primary/30 bg-primary/5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <Info className="h-5 w-5 text-primary shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h3 className="text-sm font-semibold">
+                    Keine Lektionen für die Woche vom {format(weekDays[0], "dd.MM.yyyy")} in WebUntis gefunden
+                  </h3>
+                  <p className="text-xs text-muted-foreground leading-relaxed">
+                    {weekLockedOnWebUntis
+                      ? "ZHAW WebUntis hat dieses Datum im öffentlichen Stundenplan noch nicht freigeschaltet (ERR_TTVIEW_NOTALLOWED_ONDATE)."
+                      : "Klicke auf „Ganzes Semester synchen“, um alle von der ZHAW auf WebUntis freigeschalteten Vorlesungswochen automatisch abzurufen."}
+                  </p>
                 </div>
-              ))}
-
-              {/* Time grid */}
-              <div className="relative col-span-full grid grid-cols-[60px_repeat(5,1fr)]" style={{ height: HOURS.length * hourHeight }}>
-                {HOURS.map((h) => (
-                  <div
-                    key={h}
-                    className="absolute left-0 w-[60px] border-r text-right pr-2"
-                    style={{ top: (h - startHour) * hourHeight }}
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {latestAvailableDate && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setCurrentDate(new Date(latestAvailableDate + "T12:00:00"))}
                   >
-                    <span className="text-xs text-muted-foreground -translate-y-1/2 block">
-                      {h.toString().padStart(2, "0")}:00
-                    </span>
-                  </div>
-                ))}
-
-                {HOURS.map((h) => (
-                  <div
-                    key={`line-${h}`}
-                    className="absolute left-[60px] right-0 border-t border-border/50"
-                    style={{ top: (h - startHour) * hourHeight }}
-                  />
-                ))}
-
-                {weekDates.map((d, dayIdx) => {
-                  const dateStr = format(d, "yyyy-MM-dd");
-                  const dayEntries = entriesByDay[dateStr] || [];
-
-                  return (
-                    <div
-                      key={dayIdx}
-                      className={cn(
-                        "absolute border-r",
-                        isSameDay(d, new Date()) && "bg-primary/[0.02]"
-                      )}
-                      style={{
-                        left: `calc(60px + ${dayIdx} * (100% - 60px) / 5)`,
-                        width: `calc((100% - 60px) / 5)`,
-                        height: "100%",
-                      }}
-                    >
-                      {dayEntries.map((entry) => {
-                        const startMin = timeToMinutes(entry.start_time);
-                        const endMin = timeToMinutes(entry.end_time);
-                        const top = ((startMin - startHour * 60) / 60) * hourHeight;
-                        const height = ((endMin - startMin) / 60) * hourHeight;
-                        const colorClass = getSubjectColor(entry.subject_short);
-
-                        return (
-                          <div
-                            key={entry.id}
-                            onClick={() => setSelectedEntry(entry)}
-                            className={cn(
-                              "absolute left-1 right-1 rounded-md border px-2 py-1 overflow-hidden cursor-pointer transition-all hover:shadow-md hover:scale-[1.02] active:scale-100",
-                              colorClass
-                            )}
-                            style={{ top, height: Math.max(height, 24) }}
-                          >
-                            <p className="text-xs font-bold truncate">{entry.subject_name}</p>
-                            {height > 36 && (
-                              <p className="text-[10px] opacity-70 truncate">
-                                {entry.room_name && <span>{entry.room_name} · </span>}
-                                {formatTime(entry.start_time)}–{formatTime(entry.end_time)}
-                              </p>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
+                    Woche vom {format(new Date(latestAvailableDate + "T12:00:00"), "dd.MM.yyyy")} öffnen
+                  </Button>
+                )}
+                <Button size="sm" onClick={handleSyncSemester} disabled={syncing}>
+                  Jetzt Semester laden
+                </Button>
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </Card>
+        )}
 
-        {/* Legend */}
-        {entries.length > 0 && (
-          <div className="mt-4 flex flex-wrap gap-2">
-            {[...new Set(entries.map((e) => e.subject_short))].sort().map((s) => {
-              const entry = entries.find((e) => e.subject_short === s);
+        {/* Desktop Grid */}
+        <div className="hidden lg:block">
+          <div className="grid grid-cols-[60px_repeat(5,1fr)] border rounded-xl overflow-hidden bg-card">
+            <div className="border-b bg-muted/50 p-3" />
+            {weekDays.map((day, i) => {
+              const dateStr = format(day, "yyyy-MM-dd");
+              const dayEntries = entriesByDay[dateStr] || [];
+              const today = isToday(day);
               return (
-                <Badge key={s} variant="outline" className={cn("text-xs", getSubjectColor(s))}>
-                  {s} — {entry?.subject_name}
-                </Badge>
+                <div
+                  key={i}
+                  className={`border-b border-l p-3 text-center transition-colors ${
+                    today ? "bg-primary/5" : "bg-muted/50"
+                  }`}
+                >
+                  <div className="text-xs font-medium text-muted-foreground uppercase">
+                    {DAY_LABELS[i]}
+                  </div>
+                  <div
+                    className={`mt-0.5 text-lg font-bold ${
+                      today ? "text-primary" : "text-foreground"
+                    }`}
+                  >
+                    {format(day, "d")}
+                  </div>
+                  {dayEntries.length > 0 && (
+                    <Badge variant="secondary" className="mt-1 text-[10px]">
+                      {dayEntries.length} Lektionen
+                    </Badge>
+                  )}
+                </div>
+              );
+            })}
+
+            <div
+              className="relative"
+              style={{ height: `${(21 - startHour) * hourHeight}px` }}
+            >
+              {Array.from({ length: 21 - startHour }, (_, i) => (
+                <div
+                  key={i}
+                  className="absolute w-full border-t text-[11px] text-muted-foreground pr-2 text-right font-mono"
+                  style={{ top: `${i * hourHeight}px`, height: `${hourHeight}px` }}
+                >
+                  <span className="-top-2 relative">
+                    {(startHour + i).toString().padStart(2, "0")}:00
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            {weekDays.map((day, dayIdx) => {
+              const dateStr = format(day, "yyyy-MM-dd");
+              const dayEntries = entriesByDay[dateStr] || [];
+              const today = isToday(day);
+
+              return (
+                <div
+                  key={dayIdx}
+                  className={`relative border-l ${today ? "bg-primary/[0.02]" : ""}`}
+                  style={{ height: `${(21 - startHour) * hourHeight}px` }}
+                >
+                  {Array.from({ length: 21 - startHour }, (_, i) => (
+                    <div
+                      key={i}
+                      className="absolute w-full border-t border-dashed border-border/50"
+                      style={{ top: `${i * hourHeight}px` }}
+                    />
+                  ))}
+
+                  {dayEntries.map((entry) => {
+                    const startMin = timeToMinutes(entry.start_time) - startHour * 60;
+                    const endMin = timeToMinutes(entry.end_time) - startHour * 60;
+                    const top = (startMin / 60) * hourHeight;
+                    const height = Math.max(((endMin - startMin) / 60) * hourHeight, 28);
+                    const colorClass = getSubjectColor(entry.subject_short, colorMap);
+
+                    return (
+                      <div
+                        key={entry.id}
+                        className={`absolute inset-x-1 rounded-lg border p-2 overflow-hidden transition-shadow hover:shadow-md ${colorClass}`}
+                        style={{ top: `${top}px`, height: `${height}px` }}
+                      >
+                        <div className="flex flex-col h-full justify-between">
+                          <div>
+                            <div className="font-semibold text-xs leading-tight truncate">
+                              {entry.subject_name}
+                            </div>
+                            {height > 45 && entry.subject_short && (
+                              <div className="text-[10px] opacity-70 font-mono truncate mt-0.5">
+                                {entry.subject_short}
+                              </div>
+                            )}
+                          </div>
+                          {height > 55 && (
+                            <div className="flex items-center gap-2 text-[10px] opacity-80 flex-wrap">
+                              <span className="flex items-center gap-0.5 font-mono">
+                                <Clock className="h-2.5 w-2.5" />
+                                {formatTimeShort(entry.start_time)}–
+                                {formatTimeShort(entry.end_time)}
+                              </span>
+                              {entry.room_name && (
+                                <span className="flex items-center gap-0.5">
+                                  <MapPin className="h-2.5 w-2.5" />
+                                  {entry.room_name}
+                                </span>
+                              )}
+                              {entry.teacher_name && (
+                                <span className="flex items-center gap-0.5">
+                                  <User className="h-2.5 w-2.5" />
+                                  {entry.teacher_name}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               );
             })}
           </div>
-        )}
+        </div>
 
-        {!loading && entries.length === 0 && (
-          <div className="mt-8 text-center text-muted-foreground">
-            <Calendar className="mx-auto h-12 w-12 opacity-30" />
-            <p className="mt-3 font-medium">Kein Stundenplan für diese Woche</p>
-            <p className="text-sm">Klicke "Semester synchen" um deinen WebUntis-Stundenplan zu importieren.</p>
-          </div>
-        )}
+        {/* Mobile List View */}
+        <div className="lg:hidden space-y-4">
+          {weekDays.map((day, i) => {
+            const dateStr = format(day, "yyyy-MM-dd");
+            const dayEntries = entriesByDay[dateStr] || [];
+            const today = isToday(day);
 
-        {/* Detail dialog */}
-        <Dialog open={!!selectedEntry} onOpenChange={(open) => !open && setSelectedEntry(null)}>
-          <DialogContent className="sm:max-w-md">
-            {selectedEntry && (
-              <>
-                <DialogHeader>
-                  <DialogTitle className="text-xl">{selectedEntry.subject_name}</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4 pt-2">
-                  <div className="flex items-center gap-3 text-sm">
-                    <BookOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div>
-                      <p className="text-muted-foreground text-xs">Kürzel</p>
-                      <p className="font-medium">{selectedEntry.subject_short}</p>
-                    </div>
+            return (
+              <Card key={i} className={`p-4 ${today ? "ring-2 ring-primary" : ""}`}>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`font-bold text-sm ${
+                        today ? "text-primary" : "text-foreground"
+                      }`}
+                    >
+                      {DAY_FULL[i]}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {format(day, "d. MMM", { locale: de })}
+                    </span>
                   </div>
-
-                  <div className="flex items-center gap-3 text-sm">
-                    <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div>
-                      <p className="text-muted-foreground text-xs">Zeit</p>
-                      <p className="font-medium">
-                        {format(new Date(selectedEntry.date), "EEEE, d. MMMM yyyy", { locale: de })}
-                        <br />
-                        {formatTime(selectedEntry.start_time)} – {formatTime(selectedEntry.end_time)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {selectedEntry.room_name && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <MapPin className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <div>
-                        <p className="text-muted-foreground text-xs">Raum</p>
-                        <p className="font-medium">{selectedEntry.room_name}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedEntry.teacher_name && (
-                    <div className="flex items-center gap-3 text-sm">
-                      <User className="h-4 w-4 text-muted-foreground shrink-0" />
-                      <div>
-                        <p className="text-muted-foreground text-xs">Dozent/in</p>
-                        <p className="font-medium">{selectedEntry.teacher_name}</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {selectedEntry.course_id && (
-                    <div className="rounded-lg border bg-muted/30 p-3">
-                      <p className="text-xs text-muted-foreground">✓ Verknüpft mit Moodle-Kurs</p>
-                    </div>
-                  )}
-                  {!selectedEntry.course_id && (
-                    <div className="rounded-lg border border-warning/30 bg-warning/5 p-3">
-                      <p className="text-xs text-warning">⚠ Kein Moodle-Kurs zugeordnet</p>
-                    </div>
-                  )}
+                  {today && <Badge variant="default" className="text-[10px]">Heute</Badge>}
                 </div>
-              </>
-            )}
-          </DialogContent>
-        </Dialog>
+
+                {dayEntries.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">Keine Lektionen</p>
+                ) : (
+                  <div className="space-y-2">
+                    {dayEntries.map((entry) => {
+                      const colorClass = getSubjectColor(entry.subject_short, colorMap);
+                      return (
+                        <div key={entry.id} className={`rounded-lg border p-3 ${colorClass}`}>
+                          <div className="font-semibold text-sm">{entry.subject_name}</div>
+                          <div className="mt-1 flex items-center gap-3 text-xs opacity-80 flex-wrap">
+                            <span className="flex items-center gap-1 font-mono">
+                              <Clock className="h-3 w-3" />
+                              {formatTimeShort(entry.start_time)} –{" "}
+                              {formatTimeShort(entry.end_time)}
+                            </span>
+                            {entry.room_name && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="h-3 w-3" />
+                                {entry.room_name}
+                              </span>
+                            )}
+                            {entry.teacher_name && (
+                              <span className="flex items-center gap-1">
+                                <User className="h-3 w-3" />
+                                {entry.teacher_name}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
       </div>
     </DashboardLayout>
   );

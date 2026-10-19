@@ -7,6 +7,7 @@ import {
   Settings,
   CalendarDays,
   CheckCircle2,
+  Scale,
 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
@@ -21,7 +22,7 @@ const navItems = [
   { to: "/timetable", label: "Stundenplan", icon: CalendarDays },
 ];
 
-const AUTOPILOT_KEY = "study_os_last_autopilot_v3";
+const AUTOPILOT_KEY = "study_os_last_autopilot_v4";
 const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
 
 export function AppSidebar() {
@@ -60,7 +61,7 @@ export function AppSidebar() {
         }),
       });
 
-      // 3. Auto-classify notes & prepare study tasks
+      // 3. Auto-classify notes, prepare study tasks & sync WebUntis timetable in parallel
       await Promise.all([
         fetch("/api/ai", {
           method: "POST",
@@ -71,6 +72,11 @@ export function AppSidebar() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action: "plan_week", user_id: user.id }),
+        }),
+        fetch("/api/webuntis-sync", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "sync_semester", user_id: user.id }),
         }),
       ]);
 
@@ -84,7 +90,7 @@ export function AppSidebar() {
       window.dispatchEvent(new Event("study-os-synced"));
 
       if (manual && syncRes.ok) {
-        toast.success("Autopilot Sync abgeschlossen — alle Kurse & Fristen sind aktuell!");
+        toast.success("Autopilot Sync abgeschlossen — Module, Fristen & Stundenplan aktuell!");
       }
     } catch (e) {
       console.warn("Silent autopilot check:", e);
@@ -110,14 +116,14 @@ export function AppSidebar() {
     <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col bg-sidebar border-r border-sidebar-border">
       <div className="flex h-16 items-center gap-3 px-6 border-b border-sidebar-border">
         <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground font-bold text-sm">
-          SO
+          <Scale className="h-5 w-5" />
         </div>
         <div>
           <span className="text-base font-semibold text-sidebar-foreground tracking-tight block leading-none">
-            Study OS
+            ZHAW Legal OS
           </span>
           <span className="text-[11px] text-sidebar-foreground/60">
-            ZHAW Wirtschaftsrecht
+            BSc Angewandtes Recht
           </span>
         </div>
       </div>

@@ -6,7 +6,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const LOVABLE_AI_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
+const OPENAI_API_URL = "https://api.openai.com/v1/chat/completions";
 
 const SYSTEM_PROMPT = `Du bist ein Schweizer Rechtsprofessor und Experte für juristische Textanalyse.
 
@@ -156,11 +156,11 @@ Deno.serve(async (req) => {
 
       console.log(`Downloaded ${file.file_name}: ${pdfBytes.byteLength} bytes`);
 
-      const apiKey = Deno.env.get("LOVABLE_API_KEY");
-      if (!apiKey) throw new Error("LOVABLE_API_KEY not configured");
+      const apiKey = Deno.env.get("OPENAI_API_KEY");
+      if (!apiKey) throw new Error("OPENAI_API_KEY not configured");
 
       // Send to Gemini with the PDF as base64 content
-      const aiResp = await fetch(LOVABLE_AI_URL, {
+      const aiResp = await fetch(OPENAI_API_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
